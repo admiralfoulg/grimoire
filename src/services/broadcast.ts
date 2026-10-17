@@ -9,6 +9,13 @@ export interface ActiveRulerData {
   color?: string;
 }
 
+export interface PlayerCombatantView {
+  id: string;
+  name: string;
+  kind: 'player' | 'monster' | 'npc';
+  conditions: string[];
+}
+
 export type ProjectionPayload = 
   | { 
       type: 'MAP'; 
@@ -28,6 +35,11 @@ export type ProjectionPayload =
       pins?: Omit<MapPin, 'isSecret'>[];
       zones?: Omit<MapZone, 'isSecret'>[];
       tokens?: Omit<MapToken, 'isSecret'>[];
+      combatTracker?: {
+        round: number;
+        currentTurnIndex: number;
+        combatants: PlayerCombatantView[];
+      } | null;
     }
   | { type: 'IMAGE'; title: string; imageUrl: string; subtitle?: string }
   | { type: 'CLEAR' };

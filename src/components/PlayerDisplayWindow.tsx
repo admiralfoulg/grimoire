@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { ProjectionService, type ProjectionPayload } from '../services/broadcast';
-import { Shield, Sparkles } from 'lucide-react';
+import { Shield, Sparkles, Swords, UserCheck } from 'lucide-react';
 
 const CONDITION_COLORS: Record<string, string> = {
   Blinded: 'bg-zinc-700 text-zinc-100 border-zinc-500',
@@ -33,6 +33,7 @@ export const PlayerDisplayWindow: React.FC = () => {
   const fog = payload.type === 'MAP' ? payload.fogOfWar : null;
   const lighting = payload.type === 'MAP' ? payload.ambientLighting : 'bright';
   const revealedSet = new Set(fog?.revealedCells || []);
+  const combatTracker = payload.type === 'MAP' ? payload.combatTracker : null;
 
   const getTokenDimensionsStyle = (size: 'medium' | 'large' | 'huge' = 'medium') => {
     const cellW = 100 / cols;
@@ -158,8 +159,46 @@ export const PlayerDisplayWindow: React.FC = () => {
       
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,_rgba(245,158,11,0.03)_0%,_transparent_75%)]" />
 
+      {/* TOP INITIATIVE BANNER FOR PLAYERS */}
+      {payload?.type === 'MAP' && combatTracker && combatTracker.combatants.length > 0 && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 p-1.5 rounded-2xl bg-black/85 backdrop-blur-md border border-white/15 shadow-2xl max-w-[92vw] overflow-x-auto">
+          <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-red-500/20 text-red-300 font-bold text-xs uppercase tracking-wider shrink-0 border border-red-500/30">
+            <Swords size={12} />
+            <span>R{combatTracker.round}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {combatTracker.combatants.map((c, idx) => {
+              const isActive = idx === combatTracker.currentTurnIndex;
+              return (
+                <div
+                  key={c.id}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-xl transition-all border shrink-0 ${
+                    isActive
+                      ? 'bg-amber-500 text-black border-amber-300 font-extrabold shadow-lg shadow-amber-500/30 scale-105'
+                      : 'bg-white/5 border-white/5 text-slate-300 font-semibold text-xs'
+                  }`}
+                >
+                  {isActive && <UserCheck size={12} className="text-black" />}
+                  <span className="text-xs truncate max-w-[120px]">{c.name}</span>
+                  {c.conditions.length > 0 && (
+                    <div className="flex gap-0.5">
+                      {c.conditions.slice(0, 2).map((cond, condIdx) => (
+                        <span key={condIdx} className="px-1 text-[7px] font-bold rounded bg-black/60 text-white uppercase">
+                          {cond === 'Concentrating' ? 'CONC' : cond}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Live Table Indicator */}
-      <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1 rounded-full bg-black/50 border border-white/10 backdrop-blur-md text-[11px] text-slate-400 z-50">
+      <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1 rounded-full bg-black/50 border border-white/10 backdrop-blur-md text-[11px] text-slate-400 z-40">
         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
         <span>Grimoire Live Table</span>
       </div>

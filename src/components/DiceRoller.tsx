@@ -1,135 +1,120 @@
 ﻿import React, { useState } from 'react';
-import { DiceService, type DiceRollResult } from '../services/dice';
-import { Dices, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
-
-const STANDARD_DICE = [4, 6, 8, 10, 12, 20, 100];
+import { DiceService, type RollResult } from '../services/dice';
+import { Dices, X, RotateCcw } from 'lucide-react';
 
 export const DiceRoller: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [customFormula, setCustomFormula] = useState('');
-  const [history, setHistory] = useState<DiceRollResult[]>([]);
+  const [history, setHistory] = useState<RollResult[]>([]);
+  const [customDiceCount, setCustomDiceCount] = useState(1);
+  const [customModifier, setCustomModifier] = useState(0);
 
-  const handleRoll = (formula: string, label?: string) => {
-    const result = DiceService.roll(formula, label);
-    setHistory(prev => [result, ...prev].slice(0, 20));
-  };
-
-  const handleCustomSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customFormula.trim()) return;
-    handleRoll(customFormula.trim(), 'Custom Roll');
-    setCustomFormula('');
+  const handleRoll = (sides: number) => {
+    const res = DiceService.rollDice(customDiceCount, sides, customModifier);
+    setHistory(prev => [res, ...prev.slice(0, 19)]);
   };
 
   return (
-    <div className="fixed bottom-4 right-16 z-40 select-none">
-      {/* Floating Toggle Pill */}
-      {!isOpen && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#18212e]/90 hover:bg-[#202c3d] border border-white/10 text-amber-400 hover:text-amber-300 text-xs font-semibold shadow-2xl backdrop-blur-md transition-all hover:scale-105"
-        >
-          <Dices size={15} />
-          <span>Dice Roller</span>
-          {history.length > 0 && (
-            <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] flex items-center justify-center font-bold">
-              {history[0].total}
-            </span>
-          )}
-        </button>
-      )}
+    <>
+      {/* Floating Compact Dice Trigger Icon Button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="fixed bottom-3 right-3 z-50 p-2.5 rounded-2xl bg-[#121824]/90 hover:bg-[#18212e] border border-white/10 hover:border-amber-400/40 text-amber-400 shadow-2xl backdrop-blur-md transition-all group"
+        title="Toggle Dice Roller"
+      >
+        <Dices size={18} className="transition-transform group-hover:rotate-12" />
+      </button>
 
-      {/* Expanded Dice Tray Modal/Drawer */}
+      {/* Expanded Dice Roller Panel */}
       {isOpen && (
-        <div className="w-72 bg-[#121620]/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-2xl p-4 flex flex-col gap-3 animate-in fade-in zoom-in-95">
-          {/* Header */}
-          <div className="flex items-center justify-between pb-2 border-b border-white/5">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
-              <Dices size={14} className="text-amber-400" /> Dice Tray
-            </span>
+        <div 
+          onClick={(e) => e.stopPropagation()}
+          className="fixed bottom-14 right-3 z-50 w-72 rounded-2xl bg-[#121824]/95 border border-white/15 shadow-2xl backdrop-blur-md p-4 text-xs animate-in fade-in zoom-in-95 flex flex-col gap-3 font-sans select-none"
+        >
+          <div className="flex items-center justify-between border-b border-white/10 pb-2">
+            <div className="flex items-center gap-1.5 font-bold text-slate-100">
+              <Dices size={15} className="text-amber-400" />
+              <span>Dice Tray</span>
+            </div>
             <div className="flex items-center gap-1">
-              {history.length > 0 && (
-                <button
-                  onClick={() => setHistory([])}
-                  className="text-slate-500 hover:text-red-400 p-1"
-                  title="Clear Log"
-                >
-                  <Trash2 size={12} />
-                </button>
-              )}
+              <button
+                onClick={() => setHistory([])}
+                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                title="Clear roll history"
+              >
+                <RotateCcw size={12} />
+              </button>
               <button
                 onClick={() => setIsOpen(false)}
-                className="text-slate-500 hover:text-slate-300 p-1"
+                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                title="Close tray"
               >
-                <ChevronDown size={14} />
+                <X size={13} />
               </button>
             </div>
           </div>
 
-          {/* Quick Dice Palette */}
-          <div className="grid grid-cols-4 gap-1.5">
-            {STANDARD_DICE.map(d => (
-              <button
-                key={d}
-                onClick={() => handleRoll(`1d${d}`, `d${d}`)}
-                className="py-1.5 rounded-lg bg-black/40 hover:bg-amber-500/15 border border-white/5 hover:border-amber-500/30 text-xs font-semibold text-slate-300 hover:text-amber-300 transition-colors"
-              >
-                d{d}
-              </button>
-            ))}
-            <button
-              onClick={() => handleRoll(`2d20kh1`, `Advantage`)}
-              className="py-1.5 rounded-lg bg-black/40 hover:bg-blue-500/15 border border-white/5 hover:border-blue-500/30 text-[11px] font-semibold text-slate-300 hover:text-blue-300 transition-colors"
-            >
-              ADV
-            </button>
+          {/* Dice Multipliers & Modifiers */}
+          <div className="flex items-center justify-between bg-black/40 px-2.5 py-1.5 rounded-xl border border-white/5 text-[11px]">
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400">Dice:</span>
+              <div className="flex items-center gap-0.5">
+                {[1, 2, 3, 4].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setCustomDiceCount(n)}
+                    className={`w-5 h-5 rounded flex items-center justify-center font-bold text-[10px] transition-colors ${
+                      customDiceCount === n ? 'bg-amber-500 text-black' : 'bg-white/5 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <span className="text-slate-400">Mod:</span>
+              <input
+                type="number"
+                value={customModifier}
+                onChange={(e) => setCustomModifier(parseInt(e.target.value) || 0)}
+                className="w-10 bg-black/60 border border-white/10 rounded px-1 text-center font-mono text-amber-300 outline-none"
+              />
+            </div>
           </div>
 
-          {/* Custom Formula Input */}
-          <form onSubmit={handleCustomSubmit} className="flex gap-1.5">
-            <input
-              type="text"
-              placeholder="e.g. 2d6+4, 1d20+7..."
-              value={customFormula}
-              onChange={e => setCustomFormula(e.target.value)}
-              className="flex-1 bg-black/50 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white outline-none focus:border-amber-500/50"
-            />
-            <button
-              type="submit"
-              className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs rounded-lg transition-colors"
-            >
-              Roll
-            </button>
-          </form>
+          {/* Quick Dice Buttons */}
+          <div className="grid grid-cols-4 gap-1.5">
+            {[4, 6, 8, 10, 12, 20, 100].map(sides => (
+              <button
+                key={sides}
+                onClick={() => handleRoll(sides)}
+                className="py-1.5 rounded-xl bg-white/5 hover:bg-amber-500/20 border border-white/5 hover:border-amber-400/40 text-slate-200 hover:text-amber-300 font-bold font-mono transition-colors text-center"
+              >
+                d{sides}
+              </button>
+            ))}
+          </div>
 
-          {/* Roll History Stream */}
-          <div className="max-h-40 overflow-y-auto flex flex-col gap-1.5 pr-1">
-            {history.length === 0 ? (
-              <div className="text-[11px] text-slate-600 text-center py-4 italic">
-                Click a die above to roll.
+          {/* Roll Log */}
+          <div className="flex flex-col gap-1 max-h-36 overflow-y-auto pr-0.5">
+            {history.map((h, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between px-2 py-1 rounded-lg bg-black/30 border border-white/5 text-[11px]"
+              >
+                <span className="text-slate-400 font-mono truncate max-w-[120px]">{h.notation}</span>
+                <span className="font-bold font-mono text-amber-400 text-sm">{h.total}</span>
               </div>
-            ) : (
-              history.map(roll => (
-                <div
-                  key={roll.id}
-                  className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 text-xs"
-                >
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-slate-300">{roll.formula}</span>
-                    <span className="text-[10px] text-slate-500">
-                      [{roll.dice.map(d => d.result).join(', ')}]
-                      {roll.modifier !== 0 && ` ${roll.modifier > 0 ? `+${roll.modifier}` : roll.modifier}`}
-                    </span>
-                  </div>
-                  <span className="text-base font-bold text-amber-400 font-mono">
-                    {roll.total}
-                  </span>
-                </div>
-              ))
+            ))}
+            {history.length === 0 && (
+              <div className="text-center text-[10px] text-slate-500 py-3 italic">
+                Click a die above to roll
+              </div>
             )}
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };

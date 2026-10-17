@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGrimoireStore } from '../store/useGrimoireStore';
-import { ProjectionService, type ActiveRulerData } from '../services/broadcast';
+import { ProjectionService, type ActiveRulerData, type PlayerCombatantView } from '../services/broadcast';
 import type { MapToken, MapLighting, SightType, MapObstacle, ObstacleType, SavedTokenTemplate, WorldMap, Combatant } from '../services/storage';
 import { 
   Globe, 
@@ -297,7 +297,6 @@ export const MapView: React.FC = () => {
       }
       if (e2 < dx) {
         err += dx;
-        currR += sy;
       }
 
       if ((currC !== c1 || currR !== r1) && solidObstaclesSet.has(`${currC},${currR}`)) {
@@ -389,6 +388,13 @@ export const MapView: React.FC = () => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
       if (!selectedToken || !isTactical || !activeMap) return;
 
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        deleteTokenFromMap(activeMap.id, selectedToken.id);
+        setSelectedTokenId(null);
+        return;
+      }
+
       const cellW = 100 / gridCols;
       const cellH = 100 / gridRows;
 
@@ -429,7 +435,7 @@ export const MapView: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedToken, isTactical, activeMap, gridCols, gridRows, solidObstaclesSet, updateTokenPosition, revealVisionForToken]);
+  }, [selectedToken, isTactical, activeMap, gridCols, gridRows, solidObstaclesSet, updateTokenPosition, deleteTokenFromMap, setSelectedTokenId, revealVisionForToken]);
 
   const snapCoordinate = (coordPercent: number, totalUnits: number, size: 'medium' | 'large' | 'huge' = 'medium') => {
     if (!snapToGrid || totalUnits <= 0) return coordPercent;
@@ -475,6 +481,9 @@ export const MapView: React.FC = () => {
     if (isProjecting && activeMap && activeMap.imageUrl) {
       const publicPins = (activeMap.pins || []).filter(p => !p.isSecret);
       const publicZones = (activeMap.zones || []).filter(z => !z.isSecret);
+      const secretTokenIds = new Set((activeMap.tokens || []).filter(t => t.isSecret).map(t => t.id));
+      const secretTokenNames = new Set((activeMap.tokens || []).filter(t => t.isSecret).map(t => t.name.toLowerCase()));
+
       const publicTokens = (activeMap.tokens || []).filter(t => !t.isSecret).map(t => ({
         id: t.id,
         mapId: t.mapId,
@@ -491,6 +500,33 @@ export const MapView: React.FC = () => {
         conditions: t.conditions
       }));
 
+      let projectedCombat: { round: number; currentTurnIndex: number; combatants: PlayerCombatantView[] } | null = null;
+      if (activeCombat && activeCombat.combatants.length > 0) {
+        const publicCombatants: PlayerCombatantView[] = [];
+        let publicActiveTurnIndex = 0;
+
+        activeCombat.combatants.forEach((c, idx) => {
+          const isSecret = secretTokenIds.has(c.id) || secretTokenNames.has(c.name.toLowerCase());
+          if (!isSecret) {
+            if (idx === activeCombat.currentTurnIndex) {
+              publicActiveTurnIndex = publicCombatants.length;
+            }
+            publicCombatants.push({
+              id: c.id,
+              name: c.name,
+              kind: c.kind,
+              conditions: c.conditions || []
+            });
+          }
+        });
+
+        projectedCombat = {
+          round: activeCombat.round,
+          currentTurnIndex: publicActiveTurnIndex,
+          combatants: publicCombatants
+        };
+      }
+
       ProjectionService.project({
         type: 'MAP',
         mapId: activeMap.id,
@@ -504,10 +540,11 @@ export const MapView: React.FC = () => {
         fogOfWar: activeMap.fogOfWar,
         pins: publicPins,
         zones: publicZones,
-        tokens: publicTokens
+        tokens: publicTokens,
+        combatTracker: projectedCombat
       });
     }
-  }, [activeMap, isProjecting, gridCols, gridRows, activeRuler]);
+  }, [activeMap, isProjecting, gridCols, gridRows, activeRuler, activeCombat]);
 
   const handleToggleProject = () => {
     if (!activeMap || !activeMap.imageUrl) return;
@@ -518,6 +555,9 @@ export const MapView: React.FC = () => {
     } else {
       const publicPins = (activeMap.pins || []).filter(p => !p.isSecret);
       const publicZones = (activeMap.zones || []).filter(z => !z.isSecret);
+      const secretTokenIds = new Set((activeMap.tokens || []).filter(t => t.isSecret).map(t => t.id));
+      const secretTokenNames = new Set((activeMap.tokens || []).filter(t => t.isSecret).map(t => t.name.toLowerCase()));
+
       const publicTokens = (activeMap.tokens || []).filter(t => !t.isSecret).map(t => ({
         id: t.id,
         mapId: t.mapId,
@@ -534,6 +574,33 @@ export const MapView: React.FC = () => {
         conditions: t.conditions
       }));
 
+      let projectedCombat: { round: number; currentTurnIndex: number; combatants: PlayerCombatantView[] } | null = null;
+      if (activeCombat && activeCombat.combatants.length > 0) {
+        const publicCombatants: PlayerCombatantView[] = [];
+        let publicActiveTurnIndex = 0;
+
+        activeCombat.combatants.forEach((c, idx) => {
+          const isSecret = secretTokenIds.has(c.id) || secretTokenNames.has(c.name.toLowerCase());
+          if (!isSecret) {
+            if (idx === activeCombat.currentTurnIndex) {
+              publicActiveTurnIndex = publicCombatants.length;
+            }
+            publicCombatants.push({
+              id: c.id,
+              name: c.name,
+              kind: c.kind,
+              conditions: c.conditions || []
+            });
+          }
+        });
+
+        projectedCombat = {
+          round: activeCombat.round,
+          currentTurnIndex: publicActiveTurnIndex,
+          combatants: publicCombatants
+        };
+      }
+
       ProjectionService.project({
         type: 'MAP',
         mapId: activeMap.id,
@@ -547,7 +614,8 @@ export const MapView: React.FC = () => {
         fogOfWar: activeMap.fogOfWar,
         pins: publicPins,
         zones: publicZones,
-        tokens: publicTokens
+        tokens: publicTokens,
+        combatTracker: projectedCombat
       });
       setIsProjecting(true);
     }
@@ -1639,6 +1707,7 @@ export const MapView: React.FC = () => {
                       setShowGridDropdown(!showGridDropdown);
                       setShowObjectsMenu(false);
                       setShowFogMenu(false);
+                      setShowGridDropdown(false);
                       setShowMapsMenu(false);
                       setShowAddTokenMenu(false);
                       setRosterContextMenu(null);
@@ -1755,7 +1824,7 @@ export const MapView: React.FC = () => {
                 )}
               </button>
 
-              {/* TOOL PRIMARY ACTION: ADD PIN (World) or ADD TOKEN DROPDOWN (Tactical) */}
+              {/* TOOL PRIMARY ACTION */}
               {!isTactical ? (
                 <button
                   onClick={() => setIsAddingPin(!isAddingPin)}
@@ -3223,22 +3292,22 @@ export const MapView: React.FC = () => {
           </div>
         )}
 
-        {/* COMPACT FLOATING ZOOM CONTROLS (BOTTOM-RIGHT, ABOVE DICE TRAY) */}
+        {/* COMPACT FLOATING ZOOM CONTROLS (DOCKED BOTTOM-RIGHT NEXT TO THE NEW DICE ICON) */}
         {activeMap && (
-          <div className="absolute bottom-16 right-5 z-40 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
+          <div className="fixed bottom-3 right-16 z-50 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
             <button
               onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
               className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
               title="Zoom Out (-)"
             >
-              <ZoomOut size={14} />
+              <ZoomOut size={15} />
             </button>
             <button
               onClick={() => setZoomScale(prev => Math.min(2.5, prev + 0.15))}
               className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
               title="Zoom In (+)"
             >
-              <ZoomIn size={14} />
+              <ZoomIn size={15} />
             </button>
           </div>
         )}
