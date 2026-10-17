@@ -52,7 +52,8 @@ import {
   ChevronLeft,
   GripHorizontal,
   Minimize2,
-  Maximize2
+  Maximize2,
+  Shield
 } from 'lucide-react';
 
 const DND_CONDITIONS = [
@@ -180,9 +181,13 @@ export const MapView: React.FC = () => {
   const [zoomScale, setZoomScale] = useState<number>(1);
   const [showCombatSidebar, setShowCombatSidebar] = useState<boolean>(true);
   const [isCombatSidebarMinimized, setIsCombatSidebarMinimized] = useState<boolean>(false);
-  const [sidebarPos, setSidebarPos] = useState<{ x: number; y: number }>({ x: 24, y: 72 });
+  const [sidebarPos, setSidebarPos] = useState<{ x: number; y: number }>({ x: 20, y: 68 });
+  const [sidebarWidth, setSidebarWidth] = useState<number>(240);
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
+  const [isResizingSidebar, setIsResizingSidebar] = useState<'left' | 'right' | null>(null);
   const dragSidebarOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const resizeStartX = useRef<number>(0);
+  const resizeStartWidth = useRef<number>(240);
   const [expandedCombatantId, setExpandedCombatantId] = useState<string | null>(null);
 
   // Dropdowns
@@ -696,10 +701,21 @@ export const MapView: React.FC = () => {
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isResizingSidebar) {
+      if (isResizingSidebar === 'right') {
+        const delta = e.clientX - resizeStartX.current;
+        setSidebarWidth(Math.max(180, Math.min(420, resizeStartWidth.current + delta)));
+      } else {
+        const delta = resizeStartX.current - e.clientX;
+        setSidebarWidth(Math.max(180, Math.min(420, resizeStartWidth.current + delta)));
+      }
+      return;
+    }
+
     if (isDraggingSidebar) {
       setSidebarPos({
-        x: Math.max(10, Math.min(window.innerWidth - 240, e.clientX - dragSidebarOffset.current.x)),
-        y: Math.max(60, Math.min(window.innerHeight - 200, e.clientY - dragSidebarOffset.current.y))
+        x: Math.max(10, Math.min(window.innerWidth - 180, e.clientX - dragSidebarOffset.current.x)),
+        y: Math.max(60, Math.min(window.innerHeight - 150, e.clientY - dragSidebarOffset.current.y))
       });
       return;
     }
@@ -756,6 +772,7 @@ export const MapView: React.FC = () => {
     setDraggingTokenId(null);
     setIsMouseDownOnCanvas(false);
     setIsDraggingSidebar(false);
+    setIsResizingSidebar(null);
     if (toolMode === 'ruler') {
       setRulerStart(null);
     }
@@ -2038,19 +2055,50 @@ export const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* DRAGGABLE, RESIZABLE, LIVE COMBAT INITIATIVE SIDEBAR ON BATTLEMAP */}
+      {/* DRAGGABLE & EDGE-RESIZABLE INITIATIVE SIDEBAR ON BATTLEMAP */}
       {isTactical && activeCombat && showCombatSidebar && (
         <div 
           style={{ 
             left: `${sidebarPos.x}px`, 
             top: `${sidebarPos.y}px`,
+            width: isCombatSidebarMinimized ? '170px' : `${sidebarWidth}px`,
             position: 'absolute'
           }}
-          className={`z-30 rounded-2xl bg-[#121824]/95 border border-white/15 shadow-2xl backdrop-blur-md flex flex-col gap-2 p-2.5 text-xs animate-in fade-in transition-all duration-75 ${
-            isCombatSidebarMinimized ? 'w-48' : 'w-60 max-h-[80vh]'
-          }`}
+          className="z-30 rounded-2xl bg-[#121824]/95 border border-white/15 shadow-2xl backdrop-blur-md flex flex-col gap-2 p-2.5 text-xs animate-in fade-in transition-all duration-75 relative group/sidebar"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Left Edge Resize Handle */}
+          {!isCombatSidebarMinimized && (
+            <div
+              onMouseDown={(e) => {
+                if (e.button === 0) {
+                  e.stopPropagation();
+                  setIsResizingSidebar('left');
+                  resizeStartX.current = e.clientX;
+                  resizeStartWidth.current = sidebarWidth;
+                }
+              }}
+              className="absolute left-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-amber-400/40 rounded-l transition-colors"
+              title="Drag edge to resize width"
+            />
+          )}
+
+          {/* Right Edge Resize Handle */}
+          {!isCombatSidebarMinimized && (
+            <div
+              onMouseDown={(e) => {
+                if (e.button === 0) {
+                  e.stopPropagation();
+                  setIsResizingSidebar('right');
+                  resizeStartX.current = e.clientX;
+                  resizeStartWidth.current = sidebarWidth;
+                }
+              }}
+              className="absolute right-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-amber-400/40 rounded-r transition-colors"
+              title="Drag edge to resize width"
+            />
+          )}
+
           {/* Draggable Header */}
           <div 
             onMouseDown={(e) => {
@@ -2074,7 +2122,7 @@ export const MapView: React.FC = () => {
               </span>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-0.5 shrink-0">
               <button 
                 onClick={() => setIsCombatSidebarMinimized(!isCombatSidebarMinimized)} 
                 className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white"
@@ -2099,16 +2147,16 @@ export const MapView: React.FC = () => {
                 <button onClick={() => prevTurn(activeCombat.id)} className="p-1 rounded bg-white/5 hover:bg-white/10 text-slate-300" title="Previous turn">
                   <ChevronLeft size={12} />
                 </button>
-                <span className="text-[10px] font-mono font-bold text-amber-300">
+                <span className="text-[10px] font-mono font-bold text-amber-300 truncate px-1">
                   Turn {activeCombat.currentTurnIndex + 1}/{activeCombat.combatants.length}
                 </span>
-                <button onClick={() => nextTurn(activeCombat.id)} className="px-2 py-0.5 rounded bg-red-500 hover:bg-red-400 text-white font-bold text-[10px] flex items-center gap-0.5" title="Next turn">
+                <button onClick={() => nextTurn(activeCombat.id)} className="px-2 py-0.5 rounded bg-red-500 hover:bg-red-400 text-white font-bold text-[10px] flex items-center gap-0.5 shrink-0" title="Next turn">
                   <span>Next</span>
                   <ChevronRight size={11} />
                 </button>
               </div>
 
-              {/* Combatants List with Inline HP adjustment */}
+              {/* Combatants List with L-Click HP Adjust & R-Click Full Controls */}
               <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[55vh] pr-0.5">
                 {activeCombat.combatants.map((c, idx) => {
                   const isActiveTurn = idx === activeCombat.currentTurnIndex;
@@ -2119,9 +2167,17 @@ export const MapView: React.FC = () => {
                     <div
                       key={c.id}
                       onClick={() => {
-                        const match = activeMap?.tokens?.find(t => t.id === c.id || t.name.toLowerCase() === c.name.toLowerCase());
-                        if (match) setSelectedTokenId(match.id);
+                        // Left-Click: ONLY toggle the quick inline HP adjustment drawer
                         setExpandedCombatantId(isExpanded ? null : c.id);
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        // Right-Click: Open the FULL Token Controls drawer on the right side
+                        const match = activeMap?.tokens?.find(t => t.id === c.id || t.name.toLowerCase() === c.name.toLowerCase());
+                        if (match) {
+                          setSelectedTokenId(match.id);
+                        }
                       }}
                       className={`p-2 rounded-xl border flex flex-col gap-1.5 cursor-pointer transition-all ${
                         isActiveTurn
@@ -2130,6 +2186,7 @@ export const MapView: React.FC = () => {
                           ? 'bg-blue-500/20 border-blue-400'
                           : 'bg-black/40 hover:bg-white/5 border-white/5'
                       }`}
+                      title="Left-Click: Quick HP Adjust | Right-Click: Open Token Controls"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 overflow-hidden">
@@ -2140,9 +2197,16 @@ export const MapView: React.FC = () => {
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Visible Armor Class (AC) Display */}
+                          <span className="flex items-center gap-0.5 text-[9px] font-mono text-slate-400 px-1 py-0.2 rounded bg-black/50 border border-white/5" title="Armor Class (AC)">
+                            <Shield size={9} className="text-slate-500" />
+                            <span>{c.ac}</span>
+                          </span>
+
                           <span className="text-[10px] font-mono text-emerald-400 font-bold">
                             {c.hpCurrent}/{c.hpMax}
                           </span>
+
                           {isActiveTurn && (
                             <span className="px-1 py-0.2 rounded bg-amber-400 text-black font-extrabold text-[7px] uppercase tracking-wider">
                               TURN
@@ -2151,27 +2215,27 @@ export const MapView: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* INLINE HP ADJUSTMENT CONTROLS */}
+                      {/* INLINE HP ADJUSTMENT CONTROLS (OPENS ON L-CLICK ONLY) */}
                       {isExpanded && (
                         <div 
                           onClick={(e) => e.stopPropagation()}
-                          className="flex items-center justify-between pt-1 border-t border-white/5 mt-0.5 animate-in fade-in"
+                          className="flex items-center justify-between pt-1 border-t border-white/5 mt-0.5 animate-in fade-in flex-wrap gap-1"
                         >
                           <span className="text-[9px] text-slate-400 flex items-center gap-1">
                             <Heart size={10} className="text-red-400" /> HP:
                           </span>
                           
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => adjustCombatantHp(c, -5)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-red-500/20 text-red-300 text-[9px] font-bold">-5</button>
-                            <button onClick={() => adjustCombatantHp(c, -1)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-red-500/20 text-red-300 text-[9px] font-bold">-1</button>
+                          <div className="flex items-center gap-0.5">
+                            <button onClick={() => adjustCombatantHp(c, -5)} className="px-1 py-0.5 rounded bg-white/5 hover:bg-red-500/20 text-red-300 text-[8px] font-bold">-5</button>
+                            <button onClick={() => adjustCombatantHp(c, -1)} className="px-1 py-0.5 rounded bg-white/5 hover:bg-red-500/20 text-red-300 text-[8px] font-bold">-1</button>
                             <input 
                               type="number"
                               value={c.hpCurrent}
                               onChange={(e) => setCombatantExactHp(c, parseInt(e.target.value) || 0)}
-                              className="w-10 bg-black/70 border border-white/10 rounded px-1 py-0.2 text-center text-xs text-emerald-400 font-mono"
+                              className="w-9 bg-black/70 border border-white/10 rounded px-0.5 py-0.2 text-center text-[10px] text-emerald-400 font-mono"
                             />
-                            <button onClick={() => adjustCombatantHp(c, 1)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">+1</button>
-                            <button onClick={() => adjustCombatantHp(c, 5)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">+5</button>
+                            <button onClick={() => adjustCombatantHp(c, 1)} className="px-1 py-0.5 rounded bg-white/5 hover:bg-emerald-500/20 text-emerald-300 text-[8px] font-bold">+1</button>
+                            <button onClick={() => adjustCombatantHp(c, 5)} className="px-1 py-0.5 rounded bg-white/5 hover:bg-emerald-500/20 text-emerald-300 text-[8px] font-bold">+5</button>
                           </div>
                         </div>
                       )}
@@ -2724,6 +2788,33 @@ export const MapView: React.FC = () => {
           }
         }}
       >
+        {/* FLOATING ZOOM CONTROLS (MOVED TO TOP RIGHT UNDER HEADER) */}
+        {activeMap && (
+          <div className="absolute top-4 right-4 z-40 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
+            <button
+              onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
+              title="Zoom Out (-)"
+            >
+              <ZoomOut size={14} />
+            </button>
+            <button
+              onClick={() => setZoomScale(1)}
+              className="px-2 py-1 rounded-xl hover:bg-white/10 text-[10px] font-mono font-bold text-amber-300 transition-colors"
+              title="Reset Zoom (100%)"
+            >
+              {Math.round(zoomScale * 100)}%
+            </button>
+            <button
+              onClick={() => setZoomScale(prev => Math.min(2.5, prev + 0.15))}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
+              title="Zoom In (+)"
+            >
+              <ZoomIn size={14} />
+            </button>
+          </div>
+        )}
+
         {activeMap && activeMap.imageUrl ? (
           <div 
             ref={mapContainerRef}
@@ -3156,33 +3247,6 @@ export const MapView: React.FC = () => {
             <span className="text-xs">
               No maps loaded. Open the top-left Maps dropdown to choose or upload one!
             </span>
-          </div>
-        )}
-
-        {/* FLOATING ZOOM CONTROLS ON BOTTOM RIGHT */}
-        {activeMap && (
-          <div className="absolute bottom-4 right-4 z-40 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
-            <button
-              onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
-              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
-              title="Zoom Out (-)"
-            >
-              <ZoomOut size={14} />
-            </button>
-            <button
-              onClick={() => setZoomScale(1)}
-              className="px-2 py-1 rounded-xl hover:bg-white/10 text-[10px] font-mono font-bold text-amber-300 transition-colors"
-              title="Reset Zoom (100%)"
-            >
-              {Math.round(zoomScale * 100)}%
-            </button>
-            <button
-              onClick={() => setZoomScale(prev => Math.min(2.5, prev + 0.15))}
-              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
-              title="Zoom In (+)"
-            >
-              <ZoomIn size={14} />
-            </button>
           </div>
         )}
       </div>
