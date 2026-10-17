@@ -45,7 +45,13 @@ import {
   Zap,
   MousePointer,
   AlertCircle,
-  UserCheck
+  UserCheck,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  ChevronRight,
+  ChevronLeft,
+  Shield
 } from 'lucide-react';
 
 const DND_CONDITIONS = [
@@ -153,17 +159,24 @@ export const MapView: React.FC = () => {
     deleteObstacleFromMap,
     toggleFogOfWar,
     toggleDynamicVision,
-    setFogCells
+    setFogCells,
+    nextTurn,
+    prevTurn
   } = useGrimoireStore();
 
   const activeMap = maps.find(m => m.id === activeMapId) || maps[0];
   const isTactical = (activeMap?.mapType || 'world') === 'tactical';
+  const activeCombat = combats.find(c => c.id === activeCombatId);
 
   const [isProjecting, setIsProjecting] = useState(false);
   const [isAddingPin, setIsAddingPin] = useState(false);
   const [newPinLabel, setNewPinLabel] = useState('');
   const [newPinColor, setNewPinColor] = useState('#f59e0b');
   const [newPinSecret, setNewPinSecret] = useState(false);
+
+  // Zoom & Pan State
+  const [zoomScale, setZoomScale] = useState<number>(1);
+  const [showCombatSidebar, setShowCombatSidebar] = useState<boolean>(true);
 
   // Dropdowns
   const [showMapsMenu, setShowMapsMenu] = useState(false);
@@ -1307,10 +1320,26 @@ export const MapView: React.FC = () => {
           </div>
         )}
 
-        {/* Right: Lighting, Ruler, Objects, Fog, Grid, Broadcast, and ADD TOKEN */}
+        {/* Right: Combat Sidebar Toggle, Lighting, Ruler, Objects, Fog, Grid, Broadcast, and ADD TOKEN */}
         <div className="flex items-center gap-2">
           {activeMap && (
             <>
+              {/* LIVE COMBAT INITIATIVE TOGGLE BUTTON */}
+              {isTactical && activeCombat && (
+                <button
+                  onClick={() => setShowCombatSidebar(!showCombatSidebar)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                    showCombatSidebar
+                      ? 'bg-red-500 text-white border-red-400 shadow-md ring-2 ring-red-400/50'
+                      : 'bg-black/40 hover:bg-black/60 text-red-300 border-white/5'
+                  }`}
+                  title="Toggle Live Combat Initiative Sidebar"
+                >
+                  <Swords size={13} className={showCombatSidebar ? 'animate-pulse' : ''} />
+                  <span>Initiative ({activeCombat.combatants.length})</span>
+                </button>
+              )}
+
               {/* Lighting */}
               {isTactical && (
                 <div className="flex items-center bg-black/40 border border-white/5 p-1 rounded-xl gap-0.5">
@@ -1979,7 +2008,76 @@ export const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* TOKEN INSPECTOR & SIGHT DRAWER WITH ACTIVE HIGHLIGHT INDICATORS AND CONDITIONS */}
+      {/* LIVE COMBAT INITIATIVE SIDEBAR ON BATTLEMAP */}
+      {isTactical && activeCombat && showCombatSidebar && (
+        <div className="absolute top-16 left-6 z-30 w-72 rounded-2xl bg-[#121824]/95 border border-white/10 shadow-2xl backdrop-blur-md flex flex-col gap-2.5 p-3 text-xs animate-in fade-in max-h-[85vh]">
+          <div className="flex items-center justify-between border-b border-white/5 pb-2">
+            <div className="flex items-center gap-2">
+              <Swords size={14} className="text-red-400" />
+              <span className="font-bold text-slate-100 truncate max-w-[130px]">{activeCombat.name}</span>
+              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30">
+                R{activeCombat.round}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={() => prevTurn(activeCombat.id)} className="p-1 rounded bg-white/5 hover:bg-white/10 text-slate-300" title="Previous turn">
+                <ChevronLeft size={12} />
+              </button>
+              <button onClick={() => nextTurn(activeCombat.id)} className="p-1 rounded bg-red-500 hover:bg-red-400 text-white font-bold" title="Next turn">
+                <ChevronRight size={12} />
+              </button>
+              <button onClick={() => setShowCombatSidebar(false)} className="p-1 text-slate-500 hover:text-white ml-1">
+                <X size={12} />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
+            {activeCombat.combatants.map((c, idx) => {
+              const isActiveTurn = idx === activeCombat.currentTurnIndex;
+              const isSelected = selectedTokenId === c.id || (activeMap?.tokens?.find(t => t.id === selectedTokenId)?.name.toLowerCase() === c.name.toLowerCase());
+
+              return (
+                <div
+                  key={c.id}
+                  onClick={() => {
+                    const match = activeMap?.tokens?.find(t => t.id === c.id || t.name.toLowerCase() === c.name.toLowerCase());
+                    if (match) setSelectedTokenId(match.id);
+                  }}
+                  className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                    isActiveTurn
+                      ? 'bg-amber-500/20 border-amber-400 shadow-sm ring-1 ring-amber-300'
+                      : isSelected
+                      ? 'bg-blue-500/20 border-blue-400'
+                      : 'bg-black/40 hover:bg-white/5 border-white/5'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <span className="w-5 h-5 rounded-md bg-black/50 border border-white/10 flex items-center justify-center font-mono font-bold text-amber-400 text-[10px]">
+                      {c.initiative}
+                    </span>
+                    <div className="flex flex-col overflow-hidden">
+                      <span className="font-bold text-[11px] text-slate-100 truncate">{c.name}</span>
+                      <div className="flex items-center gap-2 text-[9px] text-slate-400 font-mono">
+                        <span className="text-emerald-400 font-bold">HP {c.hpCurrent}/{c.hpMax}</span>
+                        <span>AC {c.ac}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {isActiveTurn && (
+                    <span className="px-1.5 py-0.5 rounded bg-amber-400 text-black font-extrabold text-[8px] uppercase tracking-wider shrink-0">
+                      TURN
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* TOKEN INSPECTOR & SIGHT DRAWER */}
       {selectedToken && isTactical && (
         <div className="absolute top-16 right-6 z-30 p-4 rounded-2xl bg-[#121824]/95 border border-white/10 shadow-2xl backdrop-blur-md flex flex-col gap-3 text-xs w-84 animate-in fade-in max-h-[85vh] overflow-y-auto">
           <div className="flex items-center justify-between pb-2 border-b border-white/5">
@@ -2066,13 +2164,13 @@ export const MapView: React.FC = () => {
             </div>
           </div>
 
-          {/* CREATURE SPELL / ATTACK AOE SETTINGS WITH VISIBLE HIGHLIGHTS */}
+          {/* CREATURE SPELL / ATTACK AOE SETTINGS */}
           <div className="flex flex-col gap-2 bg-black/40 p-2.5 rounded-xl border border-white/5">
             <span className="text-amber-400 font-bold flex items-center gap-1.5 text-[11px]">
               <Sparkles size={12} /> Creature AoE Template
             </span>
 
-            {/* Shape Buttons with Clear Highlight Badges */}
+            {/* Shape Buttons */}
             <div className="grid grid-cols-4 gap-1">
               {(['none', 'circle', 'cone', 'line'] as const).map(shape => {
                 const isSelectedShape = (selectedToken.aoe?.shape || 'none') === shape;
@@ -2100,7 +2198,7 @@ export const MapView: React.FC = () => {
 
             {selectedToken.aoe && selectedToken.aoe.shape !== 'none' && (
               <>
-                {/* Distance Selector with Clear Highlight Badges */}
+                {/* Distance Selector */}
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-[10px] text-slate-400 font-bold uppercase">
                     {selectedToken.aoe.shape === 'circle' ? 'Radius:' : 'Length:'}
@@ -2508,22 +2606,32 @@ export const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* Canvas Viewport */}
-      <div className="flex-1 relative overflow-auto flex items-center justify-center p-6">
+      {/* Canvas Viewport with Pan, Zoom & Full Size */}
+      <div 
+        className="flex-1 relative overflow-auto flex items-center justify-center p-2"
+        onWheel={(e) => {
+          if (e.ctrlKey || e.altKey) {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.1 : -0.1;
+            setZoomScale(prev => Math.min(2.5, Math.max(0.6, prev + delta)));
+          }
+        }}
+      >
         {activeMap && activeMap.imageUrl ? (
           <div 
             ref={mapContainerRef}
             onClick={handleCanvasClick}
             onMouseDown={handleCanvasMouseDown}
             onContextMenu={(e) => handleMapContextMenu(e)}
-            className={`relative max-w-full max-h-full rounded-2xl overflow-hidden shadow-2xl border border-white/10 ${
+            style={{ transform: `scale(${zoomScale})`, transformOrigin: 'center center', transition: 'transform 0.1s ease-out' }}
+            className={`relative max-w-full max-h-[95vh] rounded-2xl overflow-hidden shadow-2xl border border-white/10 ${
               toolMode !== 'select' ? 'cursor-crosshair' : 'cursor-default'
             }`}
           >
             <img
               src={activeMap.imageUrl}
               alt={activeMap.name}
-              className="max-h-[82vh] w-auto object-contain block pointer-events-none"
+              className="max-h-[92vh] w-auto object-contain block pointer-events-none"
             />
 
             {/* Ambient Lighting Atmospheric Tint */}
@@ -2795,14 +2903,12 @@ export const MapView: React.FC = () => {
               </div>
             ))}
 
-            {/* TACTICAL MODE: Render Draggable Tokens With Turn Tracking, Selection, & Condition Badges */}
+            {/* TACTICAL MODE: Render Draggable Tokens */}
             {isTactical && (activeMap.tokens || []).map(token => {
               const dimensions = getTokenDimensionsStyle(token.size);
               const isSelected = selectedTokenId === token.id;
               const isDead = (token.conditions || []).includes('Dead');
 
-              // Find if this token is currently taking its turn in initiative
-              const activeCombat = combats.find(c => c.id === activeCombatId);
               const activeCombatant = activeCombat?.combatants[activeCombat.currentTurnIndex];
               const isActiveTurn = Boolean(activeCombatant && (activeCombatant.id === token.id || activeCombatant.name.toLowerCase() === token.name.toLowerCase()));
               
@@ -2833,7 +2939,7 @@ export const MapView: React.FC = () => {
                     transition: draggingTokenId === token.id ? 'none' : 'left 0.1s ease-out, top 0.1s ease-out'
                   }}
                 >
-                  {/* TACTICAL TARGETING RETICLE OVERLAY FOR SELECTED TOKEN */}
+                  {/* Targeting Reticle Overlay */}
                   {isSelected && (
                     <div className="absolute -inset-2 pointer-events-none rounded-full border-2 border-dashed border-amber-300 animate-spin-slow">
                       <div className="absolute -top-1 -left-1 w-2 h-2 border-t-2 border-l-2 border-amber-400" />
@@ -2865,7 +2971,6 @@ export const MapView: React.FC = () => {
                       </>
                     )}
 
-                    {/* Red X over dead tokens */}
                     {isDead && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-red-500 font-extrabold text-lg select-none">
                         ✕
@@ -2940,6 +3045,33 @@ export const MapView: React.FC = () => {
             <span className="text-xs">
               No maps loaded. Open the top-left Maps dropdown to choose or upload one!
             </span>
+          </div>
+        )}
+
+        {/* FLOATING ZOOM CONTROLS ON BOTTOM RIGHT OF MAP */}
+        {activeMap && (
+          <div className="absolute bottom-6 right-6 z-40 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1.5 rounded-2xl shadow-2xl">
+            <button
+              onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
+              title="Zoom Out (-)"
+            >
+              <ZoomOut size={14} />
+            </button>
+            <button
+              onClick={() => setZoomScale(1)}
+              className="px-2 py-1 rounded-xl hover:bg-white/10 text-[10px] font-mono font-bold text-amber-300 transition-colors"
+              title="Reset Zoom (100%)"
+            >
+              {Math.round(zoomScale * 100)}%
+            </button>
+            <button
+              onClick={() => setZoomScale(prev => Math.min(2.5, prev + 0.15))}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
+              title="Zoom In (+)"
+            >
+              <ZoomIn size={14} />
+            </button>
           </div>
         )}
       </div>
