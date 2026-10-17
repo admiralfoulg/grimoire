@@ -66,21 +66,21 @@ const DND_CONDITIONS = [
 ];
 
 const CONDITION_COLORS: Record<string, string> = {
-  Blinded: 'bg-zinc-700 text-zinc-100 border-zinc-500',
-  Charmed: 'bg-pink-700 text-pink-100 border-pink-500',
-  Concentrating: 'bg-blue-600 text-blue-100 border-blue-400',
-  Dead: 'bg-red-950 text-red-200 border-red-700',
-  Frightened: 'bg-amber-700 text-amber-100 border-amber-500',
-  Grappled: 'bg-orange-700 text-orange-100 border-orange-500',
-  Incapacitated: 'bg-purple-800 text-purple-100 border-purple-500',
-  Invisible: 'bg-cyan-800 text-cyan-100 border-cyan-400',
-  Paralyzed: 'bg-yellow-700 text-yellow-100 border-yellow-400',
-  Petrified: 'bg-stone-700 text-stone-100 border-stone-400',
-  Poisoned: 'bg-emerald-700 text-emerald-100 border-emerald-400',
-  Prone: 'bg-indigo-700 text-indigo-100 border-indigo-400',
-  Restrained: 'bg-teal-700 text-teal-100 border-teal-400',
-  Stunned: 'bg-violet-700 text-violet-100 border-violet-400',
-  Unconscious: 'bg-rose-900 text-rose-100 border-rose-600'
+  Blinded: 'bg-zinc-700 text-zinc-100 border-zinc-400 ring-zinc-300',
+  Charmed: 'bg-pink-700 text-pink-100 border-pink-400 ring-pink-300',
+  Concentrating: 'bg-blue-600 text-blue-100 border-blue-400 ring-blue-300',
+  Dead: 'bg-red-950 text-red-200 border-red-500 ring-red-400',
+  Frightened: 'bg-amber-700 text-amber-100 border-amber-400 ring-amber-300',
+  Grappled: 'bg-orange-700 text-orange-100 border-orange-400 ring-orange-300',
+  Incapacitated: 'bg-purple-800 text-purple-100 border-purple-400 ring-purple-300',
+  Invisible: 'bg-cyan-800 text-cyan-100 border-cyan-400 ring-cyan-300',
+  Paralyzed: 'bg-yellow-700 text-yellow-100 border-yellow-400 ring-yellow-300',
+  Petrified: 'bg-stone-700 text-stone-100 border-stone-400 ring-stone-300',
+  Poisoned: 'bg-emerald-700 text-emerald-100 border-emerald-400 ring-emerald-300',
+  Prone: 'bg-indigo-700 text-indigo-100 border-indigo-400 ring-indigo-300',
+  Restrained: 'bg-teal-700 text-teal-100 border-teal-400 ring-teal-300',
+  Stunned: 'bg-violet-700 text-violet-100 border-violet-400 ring-violet-300',
+  Unconscious: 'bg-rose-900 text-rose-100 border-rose-500 ring-rose-400'
 };
 
 const ChestIcon: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 20 }) => (
@@ -1676,7 +1676,7 @@ export const MapView: React.FC = () => {
                 )}
               </button>
 
-              {/* TOOL PRIMARY ACTION: ADD PIN (World) or ADD TOKEN DROPDOWN (Tactical) */}
+              {/* TOOL PRIMARY ACTION */}
               {!isTactical ? (
                 <button
                   onClick={() => setIsAddingPin(!isAddingPin)}
@@ -2027,26 +2027,37 @@ export const MapView: React.FC = () => {
             </label>
           </div>
 
-          {/* D&D 5E CONDITIONS PANEL */}
+          {/* D&D 5E CONDITIONS PANEL WITH ACTIVE GLOWING HIGHLIGHTS */}
           <div className="flex flex-col gap-2 bg-black/40 p-2.5 rounded-xl border border-white/5">
-            <span className="text-amber-400 font-bold flex items-center gap-1.5 text-[11px]">
-              <AlertCircle size={12} /> Status & Conditions
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-amber-400 font-bold flex items-center gap-1.5 text-[11px]">
+                <AlertCircle size={12} /> Status & Conditions
+              </span>
+              {(selectedToken.conditions || []).length > 0 && (
+                <button
+                  onClick={() => updateToken(activeMap.id, { ...selectedToken, conditions: [] })}
+                  className="text-[9px] text-slate-400 hover:text-red-400 transition-colors"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
 
-            <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto pr-1">
+            <div className="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto pr-1">
               {DND_CONDITIONS.map(cond => {
                 const isActive = (selectedToken.conditions || []).includes(cond);
                 return (
                   <button
                     key={cond}
                     onClick={() => toggleTokenCondition(selectedToken, cond)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                    className={`px-2 py-1 rounded-lg text-[9px] font-bold border transition-all text-center flex items-center justify-center gap-1 ${
                       isActive 
-                        ? `${CONDITION_COLORS[cond]} shadow-sm scale-105` 
+                        ? `${CONDITION_COLORS[cond]} ring-2 shadow-lg font-black scale-[1.02]` 
                         : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/5'
                     }`}
                   >
-                    {cond}
+                    {isActive && <Check size={10} className="shrink-0 stroke-[3]" />}
+                    <span className="truncate">{cond}</span>
                   </button>
                 );
               })}
