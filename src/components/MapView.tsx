@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGrimoireStore } from '../store/useGrimoireStore';
 import { ProjectionService, type ActiveRulerData } from '../services/broadcast';
-import type { MapToken, MapLighting, SightType, MapObstacle, ObstacleType, SavedTokenTemplate, WorldMap } from '../services/storage';
+import type { MapToken, MapLighting, SightType, MapObstacle, ObstacleType, SavedTokenTemplate, WorldMap, Combatant } from '../services/storage';
 import { 
   Globe, 
   Swords, 
@@ -48,10 +48,11 @@ import {
   UserCheck,
   ZoomIn,
   ZoomOut,
-  Maximize2,
   ChevronRight,
   ChevronLeft,
-  Shield
+  GripHorizontal,
+  Minimize2,
+  Maximize2
 } from 'lucide-react';
 
 const DND_CONDITIONS = [
@@ -160,6 +161,7 @@ export const MapView: React.FC = () => {
     toggleFogOfWar,
     toggleDynamicVision,
     setFogCells,
+    updateCombat,
     nextTurn,
     prevTurn
   } = useGrimoireStore();
@@ -177,12 +179,17 @@ export const MapView: React.FC = () => {
   // Zoom & Pan State
   const [zoomScale, setZoomScale] = useState<number>(1);
   const [showCombatSidebar, setShowCombatSidebar] = useState<boolean>(true);
+  const [isCombatSidebarMinimized, setIsCombatSidebarMinimized] = useState<boolean>(false);
+  const [sidebarPos, setSidebarPos] = useState<{ x: number; y: number }>({ x: 24, y: 72 });
+  const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
+  const dragSidebarOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [expandedCombatantId, setExpandedCombatantId] = useState<string | null>(null);
 
   // Dropdowns
   const [showMapsMenu, setShowMapsMenu] = useState(false);
   const [showObjectsMenu, setShowObjectsMenu] = useState(false);
   const [showFogMenu, setShowFogMenu] = useState(false);
-  const [showGridPopover, setShowGridPopover] = useState(false);
+  const [showGridDropdown, setShowGridDropdown] = useState(false);
   const [showAddTokenMenu, setShowAddTokenMenu] = useState(false);
   const [vaultSaveSuccess, setVaultSaveSuccess] = useState(false);
 
@@ -441,7 +448,7 @@ export const MapView: React.FC = () => {
       setShowMapsMenu(false);
       setShowObjectsMenu(false);
       setShowFogMenu(false);
-      setShowGridPopover(false);
+      setShowGridDropdown(false);
       setShowAddTokenMenu(false);
     };
     window.addEventListener('click', handleGlobalClick);
@@ -689,6 +696,14 @@ export const MapView: React.FC = () => {
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDraggingSidebar) {
+      setSidebarPos({
+        x: Math.max(10, Math.min(window.innerWidth - 240, e.clientX - dragSidebarOffset.current.x)),
+        y: Math.max(60, Math.min(window.innerHeight - 200, e.clientY - dragSidebarOffset.current.y))
+      });
+      return;
+    }
+
     if (!mapContainerRef.current || !activeMap) return;
     const rect = mapContainerRef.current.getBoundingClientRect();
     const rawX = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
@@ -740,6 +755,7 @@ export const MapView: React.FC = () => {
   const handleMouseUp = () => {
     setDraggingTokenId(null);
     setIsMouseDownOnCanvas(false);
+    setIsDraggingSidebar(false);
     if (toolMode === 'ruler') {
       setRulerStart(null);
     }
@@ -754,6 +770,19 @@ export const MapView: React.FC = () => {
     if (!activeMap) return;
     const newHp = Math.max(0, (token.hpCurrent || 0) + amount);
     updateToken(activeMap.id, { ...token, hpCurrent: newHp });
+  };
+
+  const adjustCombatantHp = (combatant: Combatant, delta: number) => {
+    if (!activeCombat) return;
+    const newHp = Math.max(0, combatant.hpCurrent + delta);
+    const updatedCombatants = activeCombat.combatants.map(c => c.id === combatant.id ? { ...c, hpCurrent: newHp } : c);
+    updateCombat({ ...activeCombat, combatants: updatedCombatants });
+  };
+
+  const setCombatantExactHp = (combatant: Combatant, exactVal: number) => {
+    if (!activeCombat) return;
+    const updatedCombatants = activeCombat.combatants.map(c => c.id === combatant.id ? { ...c, hpCurrent: Math.max(0, exactVal) } : c);
+    updateCombat({ ...activeCombat, combatants: updatedCombatants });
   };
 
   const toggleTokenCondition = (token: MapToken, condition: string) => {
@@ -1069,11 +1098,11 @@ export const MapView: React.FC = () => {
       onContextMenu={(e) => e.preventDefault()}
       className="flex-1 flex flex-col h-full bg-[#080c14] text-slate-200 select-none overflow-hidden font-sans relative"
     >
-      {/* Top Bar - Clean Master Navigation */}
-      <div className="h-14 px-6 border-b border-white/5 bg-[#0f1521]/80 backdrop-blur-md flex items-center justify-between shrink-0 z-20">
+      {/* Top Bar - Clean Compact Icon Toolbar with Tooltips */}
+      <div className="h-14 px-4 border-b border-white/5 bg-[#0f1521]/90 backdrop-blur-md flex items-center justify-between shrink-0 z-20">
         
-        {/* Left: Unified Maps Dropdown */}
-        <div className="flex items-center gap-3">
+        {/* Left: Maps Dropdown & Active Indicator */}
+        <div className="flex items-center gap-2">
           <div className="relative">
             <button
               onClick={(e) => {
@@ -1081,18 +1110,16 @@ export const MapView: React.FC = () => {
                 setShowMapsMenu(!showMapsMenu);
                 setShowObjectsMenu(false);
                 setShowFogMenu(false);
-                setShowGridPopover(false);
+                setShowGridDropdown(false);
                 setShowAddTokenMenu(false);
                 setMapContextMenu(null);
                 setRosterContextMenu(null);
               }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 hover:bg-black/60 border border-white/10 text-xs font-bold text-slate-100 transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/40 hover:bg-black/60 border border-white/10 text-xs font-bold text-slate-100 transition-colors shadow-sm"
+              title="Switch or manage maps"
             >
               <MapIcon size={14} className={isTactical ? "text-red-400" : "text-blue-400"} />
-              <span className="truncate max-w-[180px]">{activeMap ? activeMap.name : 'Select Map'}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-mono px-1.5 py-0.5 rounded bg-white/5 border border-white/5">
-                {isTactical ? 'Battlemap' : 'World'}
-              </span>
+              <span className="truncate max-w-[150px]">{activeMap ? activeMap.name : 'Select Map'}</span>
               <ChevronDown size={12} className="text-slate-400" />
             </button>
 
@@ -1213,40 +1240,40 @@ export const MapView: React.FC = () => {
 
           {/* ACTIVE TOOL & SELECTION STATUS BADGE */}
           {toolMode !== 'select' ? (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold animate-in fade-in">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold animate-in fade-in">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
               <span>
-                {toolMode === 'addToken' && '🎯 Click Map to Place Token'}
-                {toolMode === 'ruler' && '📏 Drag to Measure Distance'}
-                {toolMode === 'addWall' && '🧱 Click & Drag to Draw Walls'}
-                {toolMode === 'addDoor' && '🚪 Click to Place Doors'}
-                {toolMode === 'addSecretDoor' && '🔒 Click to Place Secret Doors'}
-                {toolMode === 'addChest' && '📦 Click to Place Treasure Chest'}
-                {toolMode === 'addSecretChest' && '🔒 Click to Place Hidden Chest'}
-                {toolMode === 'addTable' && '🪑 Click to Place Table'}
-                {toolMode === 'eraseObstacle' && '🧹 Click & Drag to Erase'}
-                {toolMode === 'fogReveal' && '🖌️ Drag to Reveal Fog'}
-                {toolMode === 'fogShroud' && '🌫️ Drag to Shroud Fog'}
+                {toolMode === 'addToken' && 'Click Map to Place'}
+                {toolMode === 'ruler' && 'Measuring'}
+                {toolMode === 'addWall' && 'Drawing Walls'}
+                {toolMode === 'addDoor' && 'Placing Doors'}
+                {toolMode === 'addSecretDoor' && 'Placing Secret Doors'}
+                {toolMode === 'addChest' && 'Placing Chests'}
+                {toolMode === 'addSecretChest' && 'Placing Secret Chests'}
+                {toolMode === 'addTable' && 'Placing Tables'}
+                {toolMode === 'eraseObstacle' && 'Erasing'}
+                {toolMode === 'fogReveal' && 'Revealing Fog'}
+                {toolMode === 'fogShroud' && 'Shrouding Fog'}
               </span>
               <button
                 onClick={() => setToolMode('select')}
-                className="ml-1 p-0.5 rounded hover:bg-amber-500/30 text-amber-200"
+                className="ml-0.5 p-0.5 rounded hover:bg-amber-500/30 text-amber-200"
                 title="Cancel tool (ESC)"
               >
-                <X size={12} />
+                <X size={11} />
               </button>
             </div>
           ) : selectedToken ? (
-            <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-300 text-xs font-bold animate-in fade-in">
-              <Crosshair size={13} className="text-blue-400 animate-spin" />
-              <span>Selected: {selectedToken.name}</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-300 text-xs font-bold animate-in fade-in">
+              <Crosshair size={12} className="text-blue-400 animate-spin" />
+              <span className="truncate max-w-[120px]">{selectedToken.name}</span>
               <span className="text-[10px] text-emerald-400 font-mono">HP {selectedToken.hpCurrent}/{selectedToken.hpMax}</span>
               <button
                 onClick={() => setSelectedTokenId(null)}
-                className="ml-1 p-0.5 rounded hover:bg-blue-500/30 text-blue-200"
+                className="ml-0.5 p-0.5 rounded hover:bg-blue-500/30 text-blue-200"
                 title="Deselect token"
               >
-                <X size={12} />
+                <X size={11} />
               </button>
             </div>
           ) : null}
@@ -1320,23 +1347,22 @@ export const MapView: React.FC = () => {
           </div>
         )}
 
-        {/* Right: Combat Sidebar Toggle, Lighting, Ruler, Objects, Fog, Grid, Broadcast, and ADD TOKEN */}
-        <div className="flex items-center gap-2">
+        {/* Right: Icon-Only Tool Controls with Clean Tooltips */}
+        <div className="flex items-center gap-1.5">
           {activeMap && (
             <>
-              {/* LIVE COMBAT INITIATIVE TOGGLE BUTTON */}
+              {/* INITIATIVE SIDEBAR TOGGLE ICON */}
               {isTactical && activeCombat && (
                 <button
                   onClick={() => setShowCombatSidebar(!showCombatSidebar)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  className={`p-2 rounded-xl text-xs font-bold transition-all border ${
                     showCombatSidebar
                       ? 'bg-red-500 text-white border-red-400 shadow-md ring-2 ring-red-400/50'
                       : 'bg-black/40 hover:bg-black/60 text-red-300 border-white/5'
                   }`}
-                  title="Toggle Live Combat Initiative Sidebar"
+                  title={`Toggle Initiative Tracker (${activeCombat.combatants.length} combatants)`}
                 >
-                  <Swords size={13} className={showCombatSidebar ? 'animate-pulse' : ''} />
-                  <span>Initiative ({activeCombat.combatants.length})</span>
+                  <Swords size={15} className={showCombatSidebar ? 'animate-pulse' : ''} />
                 </button>
               )}
 
@@ -1345,32 +1371,32 @@ export const MapView: React.FC = () => {
                 <div className="flex items-center bg-black/40 border border-white/5 p-1 rounded-xl gap-0.5">
                   <button
                     onClick={() => setMapLighting(activeMap.id, 'bright')}
-                    className={`p-1.5 rounded-lg text-xs transition-colors flex items-center gap-1 ${
+                    className={`p-1.5 rounded-lg text-xs transition-colors ${
                       ambientLighting === 'bright' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'text-slate-500 hover:text-slate-300'
                     }`}
-                    title="Bright Light"
+                    title="Atmosphere: Bright Light"
                   >
-                    <Sun size={12} />
+                    <Sun size={14} />
                   </button>
 
                   <button
                     onClick={() => setMapLighting(activeMap.id, 'dim')}
-                    className={`p-1.5 rounded-lg text-xs transition-colors flex items-center gap-1 ${
+                    className={`p-1.5 rounded-lg text-xs transition-colors ${
                       ambientLighting === 'dim' ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'text-slate-500 hover:text-slate-300'
                     }`}
-                    title="Dim Light"
+                    title="Atmosphere: Dim Light"
                   >
-                    <Flame size={12} />
+                    <Flame size={14} />
                   </button>
 
                   <button
                     onClick={() => setMapLighting(activeMap.id, 'darkness')}
-                    className={`p-1.5 rounded-lg text-xs transition-colors flex items-center gap-1 ${
+                    className={`p-1.5 rounded-lg text-xs transition-colors ${
                       ambientLighting === 'darkness' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'text-slate-500 hover:text-slate-300'
                     }`}
-                    title="Pitch Darkness"
+                    title="Atmosphere: Pitch Darkness"
                   >
-                    <Moon size={12} />
+                    <Moon size={14} />
                   </button>
                 </div>
               )}
@@ -1386,19 +1412,18 @@ export const MapView: React.FC = () => {
                       setToolMode('ruler');
                     }
                   }}
-                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border ${
+                  className={`p-2 rounded-xl text-xs font-bold transition-colors border ${
                     toolMode === 'ruler'
                       ? 'bg-amber-500 text-black border-amber-400 shadow-md ring-2 ring-amber-400/50'
                       : 'bg-black/40 hover:bg-black/60 text-slate-300 border-white/5'
                   }`}
-                  title="Distance Ruler"
+                  title="Distance Ruler (Click & drag to measure)"
                 >
-                  <Ruler size={13} />
-                  <span>Ruler</span>
+                  <Ruler size={15} />
                 </button>
               )}
 
-              {/* Objects & Barriers Dropdown */}
+              {/* Objects & Barriers Dropdown Icon */}
               {isTactical && (
                 <div className="relative">
                   <button
@@ -1406,22 +1431,19 @@ export const MapView: React.FC = () => {
                       e.stopPropagation();
                       setShowObjectsMenu(!showObjectsMenu);
                       setShowFogMenu(false);
-                      setShowGridPopover(false);
+                      setShowGridDropdown(false);
                       setShowMapsMenu(false);
                       setShowAddTokenMenu(false);
                       setRosterContextMenu(null);
                     }}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border ${
+                    className={`p-2 rounded-xl text-xs font-bold transition-colors border ${
                       ['addWall', 'addDoor', 'addSecretDoor', 'addChest', 'addSecretChest', 'addTable', 'eraseObstacle'].includes(toolMode)
                         ? 'bg-amber-500 text-black border-amber-400 shadow-md ring-2 ring-amber-400/50'
                         : 'bg-black/40 hover:bg-black/60 text-slate-300 border-white/5'
                     }`}
+                    title="Objects, Doors & Walls"
                   >
-                    <Box size={13} />
-                    <span>
-                      {toolMode === 'addWall' ? 'Walls' : toolMode === 'addDoor' ? 'Doors' : toolMode === 'addSecretDoor' ? 'Secret Door' : toolMode === 'addChest' ? 'Chest' : toolMode === 'addSecretChest' ? 'Secret Chest' : toolMode === 'addTable' ? 'Table' : toolMode === 'eraseObstacle' ? 'Eraser' : 'Objects'}
-                    </span>
-                    <ChevronDown size={11} />
+                    <Box size={15} />
                   </button>
 
                   {showObjectsMenu && (
@@ -1505,7 +1527,7 @@ export const MapView: React.FC = () => {
                 </div>
               )}
 
-              {/* Fog of War Dropdown */}
+              {/* Fog of War Dropdown Icon */}
               {isTactical && (
                 <div className="relative">
                   <button
@@ -1513,20 +1535,19 @@ export const MapView: React.FC = () => {
                       e.stopPropagation();
                       setShowFogMenu(!showFogMenu);
                       setShowObjectsMenu(false);
-                      setShowGridPopover(false);
+                      setShowGridDropdown(false);
                       setShowMapsMenu(false);
                       setShowAddTokenMenu(false);
                       setRosterContextMenu(null);
                     }}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border ${
+                    className={`p-2 rounded-xl text-xs font-bold transition-colors border ${
                       fogEnabled
                         ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
                         : 'bg-black/40 hover:bg-black/60 text-slate-400 border-white/5'
                     }`}
+                    title={`Fog of War (${fogEnabled ? 'Enabled' : 'Disabled'})`}
                   >
-                    <Cloud size={13} />
-                    <span>Fog ({fogEnabled ? 'ON' : 'OFF'})</span>
-                    <ChevronDown size={11} />
+                    <Cloud size={15} />
                   </button>
 
                   {showFogMenu && (
@@ -1592,133 +1613,143 @@ export const MapView: React.FC = () => {
                 </div>
               )}
 
-              {/* Grid Dimensions Saved Per Image */}
+              {/* COMBINED GRID DROPDOWN: Grid lines, Snap, and Dimensions */}
               {isTactical && (
-                <div className="flex items-center gap-1.5 bg-black/40 border border-white/5 px-2 py-1 rounded-xl relative">
-                  <button
-                    onClick={() => setSnapToGrid(!snapToGrid)}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
-                      snapToGrid ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-slate-500 hover:text-slate-300'
-                    }`}
-                    title="Snap tokens"
-                  >
-                    <Magnet size={11} />
-                    <span>Snap</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowGridOverlay(!showGridOverlay)}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
-                      showGridOverlay ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' : 'text-slate-500 hover:text-slate-300'
-                    }`}
-                    title="Show grid lines"
-                  >
-                    <Grid size={11} />
-                    <span>Grid</span>
-                  </button>
-
+                <div className="relative">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setShowGridPopover(!showGridPopover);
+                      setShowGridDropdown(!showGridDropdown);
                       setShowObjectsMenu(false);
                       setShowFogMenu(false);
                       setShowMapsMenu(false);
                       setShowAddTokenMenu(false);
                       setRosterContextMenu(null);
                     }}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-amber-400 text-[11px] font-mono border border-white/10 transition-colors"
+                    className={`p-2 rounded-xl text-xs font-bold transition-all border ${
+                      showGridOverlay || showGridDropdown
+                        ? 'bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-sm'
+                        : 'bg-black/40 hover:bg-black/60 text-slate-400 border-white/5'
+                    }`}
+                    title="Grid Controls (Snap, Lines & Dimensions)"
                   >
-                    <span>{gridCols} × {gridRows}</span>
-                    <ChevronDown size={11} className="text-slate-500" />
+                    <Grid size={15} />
                   </button>
 
-                  {showGridPopover && (
+                  {showGridDropdown && (
                     <div 
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute top-10 right-0 z-40 p-3 rounded-xl bg-[#121824] border border-white/10 shadow-2xl flex flex-col gap-2.5 w-44 animate-in fade-in"
+                      className="absolute top-11 right-0 z-40 p-3 rounded-2xl bg-[#121824] border border-white/10 shadow-2xl flex flex-col gap-2.5 w-52 animate-in fade-in"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] uppercase font-bold text-slate-400">Grid Dimensions</span>
-                        <button onClick={() => setShowGridPopover(false)} className="text-slate-500 hover:text-white">
+                      <div className="flex items-center justify-between border-b border-white/5 pb-1.5">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                          <Grid size={12} /> Grid Settings
+                        </span>
+                        <button onClick={() => setShowGridDropdown(false)} className="text-slate-500 hover:text-white">
                           <X size={12} />
                         </button>
                       </div>
 
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400">Columns (W):</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={120}
-                          value={gridCols}
-                          onChange={e => {
-                            const val = Math.max(1, parseInt(e.target.value) || 1);
-                            setMapGridDimensions(activeMap.id, val, gridRows);
-                          }}
-                          className="w-12 bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-center text-xs text-amber-300 outline-none"
-                        />
+                      {/* Snap toggle */}
+                      <button
+                        onClick={() => setSnapToGrid(!snapToGrid)}
+                        className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-xs font-semibold transition-colors ${
+                          snapToGrid ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-white/5 text-slate-400'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5"><Magnet size={12} /> Grid Snap</span>
+                        <span className="text-[10px] font-bold">{snapToGrid ? 'ON' : 'OFF'}</span>
+                      </button>
+
+                      {/* Grid lines toggle */}
+                      <button
+                        onClick={() => setShowGridOverlay(!showGridOverlay)}
+                        className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-xs font-semibold transition-colors ${
+                          showGridOverlay ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-white/5 text-slate-400'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5"><Grid size={12} /> Grid Overlay</span>
+                        <span className="text-[10px] font-bold">{showGridOverlay ? 'VISIBLE' : 'HIDDEN'}</span>
+                      </button>
+
+                      <div className="h-px bg-white/5" />
+
+                      {/* Custom Dimensions */}
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[9px] uppercase font-bold text-slate-500">Dimensions (Columns × Rows)</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1 bg-black/60 border border-white/10 rounded px-2 py-1 flex-1">
+                            <span className="text-[10px] text-slate-500">W:</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={120}
+                              value={gridCols}
+                              onChange={e => {
+                                const val = Math.max(1, parseInt(e.target.value) || 1);
+                                setMapGridDimensions(activeMap.id, val, gridRows);
+                              }}
+                              className="w-full bg-transparent text-center text-xs text-amber-300 font-mono outline-none"
+                            />
+                          </div>
+                          <span className="text-slate-500">×</span>
+                          <div className="flex items-center gap-1 bg-black/60 border border-white/10 rounded px-2 py-1 flex-1">
+                            <span className="text-[10px] text-slate-500">H:</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={120}
+                              value={gridRows}
+                              onChange={e => {
+                                const val = Math.max(1, parseInt(e.target.value) || 1);
+                                setMapGridDimensions(activeMap.id, gridCols, val);
+                              }}
+                              className="w-full bg-transparent text-center text-xs text-amber-300 font-mono outline-none"
+                            />
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400">Rows (H):</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={120}
-                          value={gridRows}
-                          onChange={e => {
-                            const val = Math.max(1, parseInt(e.target.value) || 1);
-                            setMapGridDimensions(activeMap.id, gridCols, val);
-                          }}
-                          className="w-12 bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-center text-xs text-amber-300 outline-none"
-                        />
-                      </div>
-
+                      {/* Presets */}
                       <div className="flex justify-between gap-1 pt-1 border-t border-white/5">
-                        <button onClick={() => setMapGridDimensions(activeMap.id, 20, 20)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[9px] text-slate-400">20×20</button>
-                        <button onClick={() => setMapGridDimensions(activeMap.id, 25, 30)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[9px] text-slate-400">25×30</button>
-                        <button onClick={() => setMapGridDimensions(activeMap.id, 30, 20)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[9px] text-slate-400">30×20</button>
+                        <button onClick={() => setMapGridDimensions(activeMap.id, 20, 20)} className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[9px] text-slate-400">20×20</button>
+                        <button onClick={() => setMapGridDimensions(activeMap.id, 25, 30)} className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[9px] text-slate-400">25×30</button>
+                        <button onClick={() => setMapGridDimensions(activeMap.id, 30, 20)} className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[9px] text-slate-400">30×20</button>
                       </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Broadcast */}
+              {/* Broadcast Icon */}
               <button
                 onClick={handleToggleProject}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-lg ${
+                className={`p-2 rounded-xl text-xs font-bold transition-all shadow-lg ${
                   isProjecting
                     ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/25 ring-2 ring-amber-400/50'
                     : 'bg-purple-500/20 hover:bg-purple-500/35 text-purple-300 border border-purple-500/40'
                 }`}
+                title={isProjecting ? "Projecting Live to Player Screen (Click to stop)" : "Project Map to Player Screen"}
               >
                 {isProjecting ? (
-                  <>
-                    <Radio size={13} className="animate-pulse text-red-950" />
-                    <span>Live to Players</span>
-                  </>
+                  <Radio size={15} className="animate-pulse text-red-950" />
                 ) : (
-                  <>
-                    <Cast size={13} />
-                    <span>Project to Table</span>
-                  </>
+                  <Cast size={15} />
                 )}
               </button>
 
-              {/* TOOL PRIMARY ACTION */}
+              {/* TOOL PRIMARY ACTION: ADD PIN (World) or ADD TOKEN DROPDOWN (Tactical) */}
               {!isTactical ? (
                 <button
                   onClick={() => setIsAddingPin(!isAddingPin)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                  className={`p-2 rounded-xl text-xs font-semibold border transition-all ${
                     isAddingPin
                       ? 'bg-amber-500 text-black border-amber-500 shadow-md ring-2 ring-amber-400/50'
                       : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
                   }`}
+                  title="Add Pin Marker"
                 >
-                  <PinIcon size={12} />
-                  <span>{isAddingPin ? 'Click Map' : 'Add Pin'}</span>
+                  <PinIcon size={15} />
                 </button>
               ) : (
                 <div className="relative">
@@ -1728,18 +1759,17 @@ export const MapView: React.FC = () => {
                       setShowAddTokenMenu(!showAddTokenMenu);
                       setShowObjectsMenu(false);
                       setShowFogMenu(false);
-                      setShowGridPopover(false);
+                      setShowGridDropdown(false);
                       setRosterContextMenu(null);
                     }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                    className={`p-2 rounded-xl text-xs font-bold transition-all border ${
                       toolMode === 'addToken' || showAddTokenMenu
                         ? 'bg-red-500 text-white border-red-500 shadow-lg shadow-red-500/30 ring-2 ring-red-400/50'
                         : 'bg-red-500/20 hover:bg-red-500/35 text-red-300 border-red-500/40'
                     }`}
+                    title="Deploy Token / Party Roster"
                   >
-                    <UserPlus size={13} />
-                    <span>Add Token</span>
-                    <ChevronDown size={11} />
+                    <UserPlus size={15} />
                   </button>
 
                   {/* DEDICATED TOP-RIGHT ADD TOKEN DROPDOWN */}
@@ -2008,72 +2038,149 @@ export const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* LIVE COMBAT INITIATIVE SIDEBAR ON BATTLEMAP */}
+      {/* DRAGGABLE, RESIZABLE, LIVE COMBAT INITIATIVE SIDEBAR ON BATTLEMAP */}
       {isTactical && activeCombat && showCombatSidebar && (
-        <div className="absolute top-16 left-6 z-30 w-72 rounded-2xl bg-[#121824]/95 border border-white/10 shadow-2xl backdrop-blur-md flex flex-col gap-2.5 p-3 text-xs animate-in fade-in max-h-[85vh]">
-          <div className="flex items-center justify-between border-b border-white/5 pb-2">
-            <div className="flex items-center gap-2">
-              <Swords size={14} className="text-red-400" />
-              <span className="font-bold text-slate-100 truncate max-w-[130px]">{activeCombat.name}</span>
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30">
+        <div 
+          style={{ 
+            left: `${sidebarPos.x}px`, 
+            top: `${sidebarPos.y}px`,
+            position: 'absolute'
+          }}
+          className={`z-30 rounded-2xl bg-[#121824]/95 border border-white/15 shadow-2xl backdrop-blur-md flex flex-col gap-2 p-2.5 text-xs animate-in fade-in transition-all duration-75 ${
+            isCombatSidebarMinimized ? 'w-48' : 'w-60 max-h-[80vh]'
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Draggable Header */}
+          <div 
+            onMouseDown={(e) => {
+              if (e.button === 0) {
+                setIsDraggingSidebar(true);
+                dragSidebarOffset.current = {
+                  x: e.clientX - sidebarPos.x,
+                  y: e.clientY - sidebarPos.y
+                };
+              }
+            }}
+            className="flex items-center justify-between border-b border-white/10 pb-1.5 cursor-grab active:cursor-grabbing select-none"
+            title="Drag to reposition sidebar"
+          >
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <GripHorizontal size={14} className="text-slate-500 shrink-0" />
+              <Swords size={13} className="text-red-400 shrink-0" />
+              <span className="font-bold text-slate-100 truncate text-[11px]">{activeCombat.name}</span>
+              <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-red-500/20 text-red-300 border border-red-500/30">
                 R{activeCombat.round}
               </span>
             </div>
-            <div className="flex items-center gap-1">
-              <button onClick={() => prevTurn(activeCombat.id)} className="p-1 rounded bg-white/5 hover:bg-white/10 text-slate-300" title="Previous turn">
-                <ChevronLeft size={12} />
+
+            <div className="flex items-center gap-1 shrink-0">
+              <button 
+                onClick={() => setIsCombatSidebarMinimized(!isCombatSidebarMinimized)} 
+                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white"
+                title={isCombatSidebarMinimized ? "Expand initiative list" : "Minimize initiative list"}
+              >
+                {isCombatSidebarMinimized ? <Maximize2 size={11} /> : <Minimize2 size={11} />}
               </button>
-              <button onClick={() => nextTurn(activeCombat.id)} className="p-1 rounded bg-red-500 hover:bg-red-400 text-white font-bold" title="Next turn">
-                <ChevronRight size={12} />
-              </button>
-              <button onClick={() => setShowCombatSidebar(false)} className="p-1 text-slate-500 hover:text-white ml-1">
-                <X size={12} />
+              <button 
+                onClick={() => setShowCombatSidebar(false)} 
+                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white"
+                title="Close sidebar"
+              >
+                <X size={11} />
               </button>
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
-            {activeCombat.combatants.map((c, idx) => {
-              const isActiveTurn = idx === activeCombat.currentTurnIndex;
-              const isSelected = selectedTokenId === c.id || (activeMap?.tokens?.find(t => t.id === selectedTokenId)?.name.toLowerCase() === c.name.toLowerCase());
+          {!isCombatSidebarMinimized && (
+            <>
+              {/* Turn Advance Bar */}
+              <div className="flex items-center justify-between bg-black/40 px-2 py-1 rounded-xl border border-white/5">
+                <button onClick={() => prevTurn(activeCombat.id)} className="p-1 rounded bg-white/5 hover:bg-white/10 text-slate-300" title="Previous turn">
+                  <ChevronLeft size={12} />
+                </button>
+                <span className="text-[10px] font-mono font-bold text-amber-300">
+                  Turn {activeCombat.currentTurnIndex + 1}/{activeCombat.combatants.length}
+                </span>
+                <button onClick={() => nextTurn(activeCombat.id)} className="px-2 py-0.5 rounded bg-red-500 hover:bg-red-400 text-white font-bold text-[10px] flex items-center gap-0.5" title="Next turn">
+                  <span>Next</span>
+                  <ChevronRight size={11} />
+                </button>
+              </div>
 
-              return (
-                <div
-                  key={c.id}
-                  onClick={() => {
-                    const match = activeMap?.tokens?.find(t => t.id === c.id || t.name.toLowerCase() === c.name.toLowerCase());
-                    if (match) setSelectedTokenId(match.id);
-                  }}
-                  className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                    isActiveTurn
-                      ? 'bg-amber-500/20 border-amber-400 shadow-sm ring-1 ring-amber-300'
-                      : isSelected
-                      ? 'bg-blue-500/20 border-blue-400'
-                      : 'bg-black/40 hover:bg-white/5 border-white/5'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <span className="w-5 h-5 rounded-md bg-black/50 border border-white/10 flex items-center justify-center font-mono font-bold text-amber-400 text-[10px]">
-                      {c.initiative}
-                    </span>
-                    <div className="flex flex-col overflow-hidden">
-                      <span className="font-bold text-[11px] text-slate-100 truncate">{c.name}</span>
-                      <div className="flex items-center gap-2 text-[9px] text-slate-400 font-mono">
-                        <span className="text-emerald-400 font-bold">HP {c.hpCurrent}/{c.hpMax}</span>
-                        <span>AC {c.ac}</span>
+              {/* Combatants List with Inline HP adjustment */}
+              <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[55vh] pr-0.5">
+                {activeCombat.combatants.map((c, idx) => {
+                  const isActiveTurn = idx === activeCombat.currentTurnIndex;
+                  const isSelected = selectedTokenId === c.id || (activeMap?.tokens?.find(t => t.id === selectedTokenId)?.name.toLowerCase() === c.name.toLowerCase());
+                  const isExpanded = expandedCombatantId === c.id;
+
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => {
+                        const match = activeMap?.tokens?.find(t => t.id === c.id || t.name.toLowerCase() === c.name.toLowerCase());
+                        if (match) setSelectedTokenId(match.id);
+                        setExpandedCombatantId(isExpanded ? null : c.id);
+                      }}
+                      className={`p-2 rounded-xl border flex flex-col gap-1.5 cursor-pointer transition-all ${
+                        isActiveTurn
+                          ? 'bg-amber-500/20 border-amber-400 shadow-sm ring-1 ring-amber-300'
+                          : isSelected
+                          ? 'bg-blue-500/20 border-blue-400'
+                          : 'bg-black/40 hover:bg-white/5 border-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 overflow-hidden">
+                          <span className="w-5 h-5 rounded-md bg-black/60 border border-white/10 flex items-center justify-center font-mono font-bold text-amber-400 text-[10px] shrink-0">
+                            {c.initiative}
+                          </span>
+                          <span className="font-bold text-[11px] text-slate-100 truncate">{c.name}</span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                            {c.hpCurrent}/{c.hpMax}
+                          </span>
+                          {isActiveTurn && (
+                            <span className="px-1 py-0.2 rounded bg-amber-400 text-black font-extrabold text-[7px] uppercase tracking-wider">
+                              TURN
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
 
-                  {isActiveTurn && (
-                    <span className="px-1.5 py-0.5 rounded bg-amber-400 text-black font-extrabold text-[8px] uppercase tracking-wider shrink-0">
-                      TURN
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                      {/* INLINE HP ADJUSTMENT CONTROLS */}
+                      {isExpanded && (
+                        <div 
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center justify-between pt-1 border-t border-white/5 mt-0.5 animate-in fade-in"
+                        >
+                          <span className="text-[9px] text-slate-400 flex items-center gap-1">
+                            <Heart size={10} className="text-red-400" /> HP:
+                          </span>
+                          
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => adjustCombatantHp(c, -5)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-red-500/20 text-red-300 text-[9px] font-bold">-5</button>
+                            <button onClick={() => adjustCombatantHp(c, -1)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-red-500/20 text-red-300 text-[9px] font-bold">-1</button>
+                            <input 
+                              type="number"
+                              value={c.hpCurrent}
+                              onChange={(e) => setCombatantExactHp(c, parseInt(e.target.value) || 0)}
+                              className="w-10 bg-black/70 border border-white/10 rounded px-1 py-0.2 text-center text-xs text-emerald-400 font-mono"
+                            />
+                            <button onClick={() => adjustCombatantHp(c, 1)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">+1</button>
+                            <button onClick={() => adjustCombatantHp(c, 5)} className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">+5</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -2164,13 +2271,13 @@ export const MapView: React.FC = () => {
             </div>
           </div>
 
-          {/* CREATURE SPELL / ATTACK AOE SETTINGS */}
+          {/* CREATURE SPELL / ATTACK AOE SETTINGS WITH VISIBLE HIGHLIGHTS */}
           <div className="flex flex-col gap-2 bg-black/40 p-2.5 rounded-xl border border-white/5">
             <span className="text-amber-400 font-bold flex items-center gap-1.5 text-[11px]">
               <Sparkles size={12} /> Creature AoE Template
             </span>
 
-            {/* Shape Buttons */}
+            {/* Shape Buttons with Clear Highlight Badges */}
             <div className="grid grid-cols-4 gap-1">
               {(['none', 'circle', 'cone', 'line'] as const).map(shape => {
                 const isSelectedShape = (selectedToken.aoe?.shape || 'none') === shape;
@@ -2198,7 +2305,7 @@ export const MapView: React.FC = () => {
 
             {selectedToken.aoe && selectedToken.aoe.shape !== 'none' && (
               <>
-                {/* Distance Selector */}
+                {/* Distance Selector with Clear Highlight Badges */}
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-[10px] text-slate-400 font-bold uppercase">
                     {selectedToken.aoe.shape === 'circle' ? 'Radius:' : 'Length:'}
@@ -2606,9 +2713,9 @@ export const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* Canvas Viewport with Pan, Zoom & Full Size */}
+      {/* Canvas Viewport with Pan, Zoom & Full-Fill Size */}
       <div 
-        className="flex-1 relative overflow-auto flex items-center justify-center p-2"
+        className="flex-1 relative overflow-auto flex items-center justify-center p-0"
         onWheel={(e) => {
           if (e.ctrlKey || e.altKey) {
             e.preventDefault();
@@ -2623,15 +2730,19 @@ export const MapView: React.FC = () => {
             onClick={handleCanvasClick}
             onMouseDown={handleCanvasMouseDown}
             onContextMenu={(e) => handleMapContextMenu(e)}
-            style={{ transform: `scale(${zoomScale})`, transformOrigin: 'center center', transition: 'transform 0.1s ease-out' }}
-            className={`relative max-w-full max-h-[95vh] rounded-2xl overflow-hidden shadow-2xl border border-white/10 ${
+            style={{ 
+              transform: `scale(${zoomScale})`, 
+              transformOrigin: 'center center', 
+              transition: 'transform 0.1s ease-out' 
+            }}
+            className={`relative max-w-full max-h-[96vh] rounded-2xl overflow-hidden shadow-2xl border border-white/10 ${
               toolMode !== 'select' ? 'cursor-crosshair' : 'cursor-default'
             }`}
           >
             <img
               src={activeMap.imageUrl}
               alt={activeMap.name}
-              className="max-h-[92vh] w-auto object-contain block pointer-events-none"
+              className="max-h-[95vh] w-auto object-contain block pointer-events-none"
             />
 
             {/* Ambient Lighting Atmospheric Tint */}
@@ -3048,9 +3159,9 @@ export const MapView: React.FC = () => {
           </div>
         )}
 
-        {/* FLOATING ZOOM CONTROLS ON BOTTOM RIGHT OF MAP */}
+        {/* FLOATING ZOOM CONTROLS ON BOTTOM RIGHT */}
         {activeMap && (
-          <div className="absolute bottom-6 right-6 z-40 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1.5 rounded-2xl shadow-2xl">
+          <div className="absolute bottom-4 right-4 z-40 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
             <button
               onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
               className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
