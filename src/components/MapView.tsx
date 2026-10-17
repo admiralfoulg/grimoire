@@ -44,7 +44,8 @@ import {
   Crosshair,
   Zap,
   MousePointer,
-  AlertCircle
+  AlertCircle,
+  UserCheck
 } from 'lucide-react';
 
 const DND_CONDITIONS = [
@@ -128,7 +129,11 @@ export const MapView: React.FC = () => {
   const { 
     maps, 
     activeMapId, 
+    combats,
+    activeCombatId,
     savedTokens,
+    selectedTokenId,
+    setSelectedTokenId,
     createMap, 
     deleteMap, 
     setActiveMap, 
@@ -191,9 +196,6 @@ export const MapView: React.FC = () => {
   const [tokenIsPlayer, setTokenIsPlayer] = useState(true);
   const [tokenVisionRange, setTokenVisionRange] = useState<number>(6);
   const [tokenSightType, setTokenSightType] = useState<SightType>('normal');
-
-  // Selected Token ID
-  const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
 
   // Synchronous Anti-Bounce Token Coordinate Store
   const tokenCoordsRef = useRef<Record<string, { x: number; y: number }>>({});
@@ -1726,7 +1728,7 @@ export const MapView: React.FC = () => {
                         </button>
                       </div>
 
-                      {/* Saved Party Roster 1-Click Drop With Right Click / Delete Button */}
+                      {/* Saved Party Roster */}
                       {savedTokens.length > 0 && (
                         <div className="flex flex-col gap-1.5 bg-black/40 p-2.5 rounded-xl border border-white/5">
                           <div className="flex items-center justify-between">
@@ -2793,11 +2795,16 @@ export const MapView: React.FC = () => {
               </div>
             ))}
 
-            {/* TACTICAL MODE: Render Draggable Tokens With Highlight Markers and Condition Rings */}
+            {/* TACTICAL MODE: Render Draggable Tokens With Turn Tracking, Selection, & Condition Badges */}
             {isTactical && (activeMap.tokens || []).map(token => {
               const dimensions = getTokenDimensionsStyle(token.size);
               const isSelected = selectedTokenId === token.id;
               const isDead = (token.conditions || []).includes('Dead');
+
+              // Find if this token is currently taking its turn in initiative
+              const activeCombat = combats.find(c => c.id === activeCombatId);
+              const activeCombatant = activeCombat?.combatants[activeCombat.currentTurnIndex];
+              const isActiveTurn = Boolean(activeCombatant && (activeCombatant.id === token.id || activeCombatant.name.toLowerCase() === token.name.toLowerCase()));
               
               const posX = tokenCoordsRef.current[token.id]?.x ?? token.x;
               const posY = tokenCoordsRef.current[token.id]?.y ?? token.y;
@@ -2809,7 +2816,11 @@ export const MapView: React.FC = () => {
                   onMouseDown={(e) => handleTokenMouseDown(e, token.id)}
                   onContextMenu={(e) => handleMapContextMenu(e, token.id)}
                   className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full cursor-grab active:cursor-grabbing border-2 shadow-2xl z-25 flex flex-col items-center justify-center ${
-                    isSelected ? 'ring-4 ring-amber-400 shadow-amber-400/70 scale-110 z-30' : ''
+                    isActiveTurn
+                      ? 'ring-4 ring-amber-400 shadow-amber-400/80 scale-110 z-35 animate-pulse'
+                      : isSelected 
+                      ? 'ring-4 ring-blue-400 shadow-blue-400/80 scale-105 z-30' 
+                      : ''
                   } ${isDead ? 'opacity-65 grayscale' : ''}`}
                   style={{ 
                     left: `${posX}%`, 
@@ -2889,9 +2900,17 @@ export const MapView: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Floating Overhead Badge on Selection */}
+                  {/* Floating Active Turn Badge */}
+                  {isActiveTurn && (
+                    <div className="absolute -top-11 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-amber-400 text-black font-extrabold text-[8px] uppercase tracking-wider whitespace-nowrap shadow-xl flex items-center gap-1 z-50">
+                      <UserCheck size={9} />
+                      <span>Active Turn</span>
+                    </div>
+                  )}
+
+                  {/* Floating Overhead Name Badge on Selection */}
                   {isSelected && (
-                    <div className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-amber-500 text-black font-extrabold text-[8px] uppercase tracking-wider whitespace-nowrap shadow-lg flex items-center gap-1 pointer-events-none">
+                    <div className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-blue-500 text-white font-extrabold text-[8px] uppercase tracking-wider whitespace-nowrap shadow-lg flex items-center gap-1 pointer-events-none z-45">
                       <span>{token.name}</span>
                     </div>
                   )}

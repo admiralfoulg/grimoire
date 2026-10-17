@@ -37,6 +37,7 @@ interface GrimoireState {
   activeView: ActiveView;
   activeCardId: string | null;
   activeMapId: string | null;
+  selectedTokenId: string | null;
 
   init: () => Promise<void>;
   selectWorld: (worldId: string) => Promise<void>;
@@ -55,6 +56,7 @@ interface GrimoireState {
   createMap: (name: string, imageUrl: string, mapType?: 'world' | 'tactical') => Promise<WorldMap>;
   deleteMap: (id: string) => Promise<void>;
   setActiveMap: (id: string | null) => void;
+  setSelectedTokenId: (id: string | null) => void;
   setMapLighting: (mapId: string, lighting: MapLighting) => Promise<void>;
   setMapGridDimensions: (mapId: string, gridCols: number, gridRows: number) => Promise<void>;
   addPinToMap: (mapId: string, pin: Omit<MapPin, 'id' | 'mapId'>) => Promise<void>;
@@ -92,6 +94,8 @@ interface GrimoireState {
   setActiveCombat: (id: string | null) => void;
   nextTurn: (combatId: string) => Promise<void>;
   prevTurn: (combatId: string) => Promise<void>;
+  importMapTokensToCombat: (mapId: string, combatId: string) => Promise<void>;
+  deployCombatantsToMap: (combatId: string, mapId: string) => Promise<void>;
 
   createSession: (title: string) => Promise<SessionRecord>;
   updateSession: (session: SessionRecord) => Promise<void>;
@@ -118,6 +122,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   activeView: 'editor',
   activeCardId: null,
   activeMapId: null,
+  selectedTokenId: null,
 
   init: async () => {
     try {
@@ -191,6 +196,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       activeSessionId: sessions[0]?.id || null,
       activeCardId: cards[0]?.id || null,
       activeMapId: maps[0]?.id || null,
+      selectedTokenId: null,
       activeView: 'editor'
     });
   },
@@ -205,7 +211,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     };
     await StorageService.saveWorld(newWorld);
     const worlds = await StorageService.listWorlds();
-    set({ worlds, currentWorld: newWorld, cards: [], folders: [], maps: [], savedTokens: [], relationships: [], events: [], combats: [], sessions: [], activeCardId: null, activeMapId: null });
+    set({ worlds, currentWorld: newWorld, cards: [], folders: [], maps: [], savedTokens: [], relationships: [], events: [], combats: [], sessions: [], activeCardId: null, activeMapId: null, selectedTokenId: null });
     return newWorld;
   },
 
@@ -347,6 +353,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   },
 
   setActiveMap: (id) => set({ activeMapId: id, activeView: 'map' }),
+  setSelectedTokenId: (id) => set({ selectedTokenId: id }),
 
   setMapLighting: async (mapId, ambientLighting) => {
     const { maps } = get();
@@ -424,24 +431,52 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       visionRange: 6,
       sightType: 'normal',
       aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' },
+      conditions: [],
       ...tokenData 
     };
     const updatedMap: WorldMap = { ...targetMap, tokens: [...(targetMap.tokens || []), newToken], updatedAt: Date.now() };
 
     await StorageService.saveMap(updatedMap);
-    set({ maps: maps.map(m => m.id === mapId ? updatedMap : m) });
+    set({ maps: maps.map(m => m.id === mapId ? updatedMap : m), selectedTokenId: newToken.id });
   },
 
   updateToken: async (mapId, token) => {
-    const { maps } = get();
+    const { maps, combats, activeCombatId } = get();
     const targetMap = maps.find(m => m.id === mapId);
     if (!targetMap) return;
 
     const updatedTokens = (targetMap.tokens || []).map(t => t.id === token.id ? token : t);
     const updatedMap: WorldMap = { ...targetMap, tokens: updatedTokens, updatedAt: Date.now() };
-
     await StorageService.saveMap(updatedMap);
-    set({ maps: maps.map(m => m.id === mapId ? updatedMap : m) });
+
+    // Synchronize to Active Combat Tracker if a combatant matches this token
+    let updatedCombats = combats;
+    if (activeCombatId) {
+      const combat = combats.find(c => c.id === activeCombatId);
+      if (combat) {
+        let changed = false;
+        const newCombatants = combat.combatants.map(c => {
+          if (c.id === token.id || c.name.toLowerCase() === token.name.toLowerCase()) {
+            changed = true;
+            return {
+              ...c,
+              hpCurrent: token.hpCurrent ?? c.hpCurrent,
+              hpMax: token.hpMax ?? c.hpMax,
+              conditions: token.conditions || []
+            };
+          }
+          return c;
+        });
+
+        if (changed) {
+          const updatedCombat = { ...combat, combatants: newCombatants, updatedAt: Date.now() };
+          await StorageService.saveCombat(updatedCombat);
+          updatedCombats = combats.map(c => c.id === activeCombatId ? updatedCombat : c);
+        }
+      }
+    }
+
+    set({ maps: maps.map(m => m.id === mapId ? updatedMap : m), combats: updatedCombats });
   },
 
   updateTokenPosition: async (mapId, tokenId, x, y) => {
@@ -457,7 +492,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   },
 
   deleteTokenFromMap: async (mapId, tokenId) => {
-    const { maps } = get();
+    const { maps, selectedTokenId } = get();
     const targetMap = maps.find(m => m.id === mapId);
     if (!targetMap) return;
 
@@ -465,7 +500,10 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     const updatedMap: WorldMap = { ...targetMap, tokens: updatedTokens, updatedAt: Date.now() };
 
     await StorageService.saveMap(updatedMap);
-    set({ maps: maps.map(m => m.id === mapId ? updatedMap : m) });
+    set({ 
+      maps: maps.map(m => m.id === mapId ? updatedMap : m),
+      selectedTokenId: selectedTokenId === tokenId ? null : selectedTokenId
+    });
   },
 
   saveTokenToVault: async (tokenData) => {
@@ -664,10 +702,39 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   },
 
   updateCombat: async (combat) => {
-    const { combats } = get();
+    const { combats, maps, activeMapId } = get();
     const next = combats.map(c => c.id === combat.id ? { ...combat, updatedAt: Date.now() } : c);
     await StorageService.saveCombat(combat);
-    set({ combats: next });
+
+    // Synchronize to active battlemap tokens if matching by ID or name
+    let updatedMaps = maps;
+    if (activeMapId) {
+      const activeMap = maps.find(m => m.id === activeMapId);
+      if (activeMap && activeMap.tokens) {
+        let changed = false;
+        const newTokens = activeMap.tokens.map(token => {
+          const match = combat.combatants.find(c => c.id === token.id || c.name.toLowerCase() === token.name.toLowerCase());
+          if (match) {
+            changed = true;
+            return {
+              ...token,
+              hpCurrent: match.hpCurrent,
+              hpMax: match.hpMax,
+              conditions: match.conditions
+            };
+          }
+          return token;
+        });
+
+        if (changed) {
+          const updatedMap = { ...activeMap, tokens: newTokens, updatedAt: Date.now() };
+          await StorageService.saveMap(updatedMap);
+          updatedMaps = maps.map(m => m.id === activeMapId ? updatedMap : m);
+        }
+      }
+    }
+
+    set({ combats: next, maps: updatedMaps });
   },
 
   deleteCombat: async (id) => {
@@ -683,7 +750,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   setActiveCombat: (id) => set({ activeCombatId: id, activeView: 'combat' }),
 
   nextTurn: async (combatId) => {
-    const { combats } = get();
+    const { combats, maps, activeMapId } = get();
     const combat = combats.find(c => c.id === combatId);
     if (!combat || combat.combatants.length === 0) return;
 
@@ -703,11 +770,24 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     };
 
     await StorageService.saveCombat(updated);
-    set({ combats: combats.map(c => c.id === combatId ? updated : c) });
+
+    // Automatically highlight active turn's token on the battlemap
+    const activeCombatant = updated.combatants[nextIndex];
+    let matchingTokenId: string | null = null;
+    if (activeMapId && activeCombatant) {
+      const activeMap = maps.find(m => m.id === activeMapId);
+      const token = activeMap?.tokens?.find(t => t.id === activeCombatant.id || t.name.toLowerCase() === activeCombatant.name.toLowerCase());
+      if (token) matchingTokenId = token.id;
+    }
+
+    set({ 
+      combats: combats.map(c => c.id === combatId ? updated : c),
+      selectedTokenId: matchingTokenId || get().selectedTokenId
+    });
   },
 
   prevTurn: async (combatId) => {
-    const { combats } = get();
+    const { combats, maps, activeMapId } = get();
     const combat = combats.find(c => c.id === combatId);
     if (!combat || combat.combatants.length === 0) return;
 
@@ -731,7 +811,98 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     };
 
     await StorageService.saveCombat(updated);
+
+    const activeCombatant = updated.combatants[prevIndex];
+    let matchingTokenId: string | null = null;
+    if (activeMapId && activeCombatant) {
+      const activeMap = maps.find(m => m.id === activeMapId);
+      const token = activeMap?.tokens?.find(t => t.id === activeCombatant.id || t.name.toLowerCase() === activeCombatant.name.toLowerCase());
+      if (token) matchingTokenId = token.id;
+    }
+
+    set({ 
+      combats: combats.map(c => c.id === combatId ? updated : c),
+      selectedTokenId: matchingTokenId || get().selectedTokenId
+    });
+  },
+
+  importMapTokensToCombat: async (mapId, combatId) => {
+    const { maps, combats } = get();
+    const targetMap = maps.find(m => m.id === mapId);
+    const combat = combats.find(c => c.id === combatId);
+    if (!targetMap || !combat || !targetMap.tokens) return;
+
+    const existingIds = new Set(combat.combatants.map(c => c.id));
+    const newCombatants: Combatant[] = [...combat.combatants];
+
+    targetMap.tokens.forEach(t => {
+      if (!existingIds.has(t.id)) {
+        newCombatants.push({
+          id: t.id,
+          name: t.name,
+          kind: t.isPlayer ? 'player' : 'monster',
+          initiative: Math.floor(Math.random() * 20) + 1,
+          hpCurrent: t.hpCurrent ?? 20,
+          hpMax: t.hpMax ?? 20,
+          ac: 12,
+          conditions: t.conditions || []
+        });
+      }
+    });
+
+    newCombatants.sort((a, b) => b.initiative - a.initiative);
+    const updated = { ...combat, combatants: newCombatants, updatedAt: Date.now() };
+    await StorageService.saveCombat(updated);
     set({ combats: combats.map(c => c.id === combatId ? updated : c) });
+  },
+
+  deployCombatantsToMap: async (combatId, mapId) => {
+    const { combats, maps } = get();
+    const combat = combats.find(c => c.id === combatId);
+    const targetMap = maps.find(m => m.id === mapId);
+    if (!combat || !targetMap) return;
+
+    const existingTokenIds = new Set((targetMap.tokens || []).map(t => t.id));
+    const cols = targetMap.gridCols ?? 25;
+    const rows = targetMap.gridRows ?? 30;
+    const cellW = 100 / cols;
+    const cellH = 100 / rows;
+
+    const centerCol = Math.floor(cols / 2);
+    const centerRow = Math.floor(rows / 2);
+
+    const newTokens: MapToken[] = [...(targetMap.tokens || [])];
+
+    combat.combatants.forEach((c, idx) => {
+      if (!existingTokenIds.has(c.id)) {
+        const offsetCol = (idx % 4) - 1.5;
+        const offsetRow = Math.floor(idx / 4);
+
+        const x = Math.max(cellW / 2, Math.min(100 - cellW / 2, (centerCol + offsetCol + 0.5) * cellW));
+        const y = Math.max(cellH / 2, Math.min(100 - cellH / 2, (centerRow + offsetRow + 0.5) * cellH));
+
+        newTokens.push({
+          id: c.id,
+          mapId: targetMap.id,
+          x,
+          y,
+          name: c.name,
+          color: c.kind === 'player' ? '#3b82f6' : '#ef4444',
+          size: 'medium',
+          hpCurrent: c.hpCurrent,
+          hpMax: c.hpMax,
+          isPlayer: c.kind === 'player',
+          visionRange: 6,
+          sightType: 'normal',
+          aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' },
+          conditions: c.conditions || []
+        });
+      }
+    });
+
+    const updatedMap: WorldMap = { ...targetMap, tokens: newTokens, updatedAt: Date.now() };
+    await StorageService.saveMap(updatedMap);
+    set({ maps: maps.map(m => m.id === mapId ? updatedMap : m) });
   },
 
   createSession: async (title) => {
