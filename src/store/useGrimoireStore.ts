@@ -449,7 +449,6 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     const updatedMap: WorldMap = { ...targetMap, tokens: updatedTokens, updatedAt: Date.now() };
     await StorageService.saveMap(updatedMap);
 
-    // Synchronize to Active Combat Tracker if a combatant matches this token
     let updatedCombats = combats;
     if (activeCombatId) {
       const combat = combats.find(c => c.id === activeCombatId);
@@ -706,7 +705,6 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     const next = combats.map(c => c.id === combat.id ? { ...combat, updatedAt: Date.now() } : c);
     await StorageService.saveCombat(combat);
 
-    // Synchronize to active battlemap tokens if matching by ID or name
     let updatedMaps = maps;
     if (activeMapId) {
       const activeMap = maps.find(m => m.id === activeMapId);
@@ -750,7 +748,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   setActiveCombat: (id) => set({ activeCombatId: id, activeView: 'combat' }),
 
   nextTurn: async (combatId) => {
-    const { combats, maps, activeMapId } = get();
+    const { combats } = get();
     const combat = combats.find(c => c.id === combatId);
     if (!combat || combat.combatants.length === 0) return;
 
@@ -771,23 +769,14 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
 
     await StorageService.saveCombat(updated);
 
-    // Automatically highlight active turn's token on the battlemap
-    const activeCombatant = updated.combatants[nextIndex];
-    let matchingTokenId: string | null = null;
-    if (activeMapId && activeCombatant) {
-      const activeMap = maps.find(m => m.id === activeMapId);
-      const token = activeMap?.tokens?.find(t => t.id === activeCombatant.id || t.name.toLowerCase() === activeCombatant.name.toLowerCase());
-      if (token) matchingTokenId = token.id;
-    }
-
+    // Keep active turn updated without hijacking selectedTokenId (which opened the right controls drawer)
     set({ 
-      combats: combats.map(c => c.id === combatId ? updated : c),
-      selectedTokenId: matchingTokenId || get().selectedTokenId
+      combats: combats.map(c => c.id === combatId ? updated : c)
     });
   },
 
   prevTurn: async (combatId) => {
-    const { combats, maps, activeMapId } = get();
+    const { combats } = get();
     const combat = combats.find(c => c.id === combatId);
     if (!combat || combat.combatants.length === 0) return;
 
@@ -812,17 +801,8 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
 
     await StorageService.saveCombat(updated);
 
-    const activeCombatant = updated.combatants[prevIndex];
-    let matchingTokenId: string | null = null;
-    if (activeMapId && activeCombatant) {
-      const activeMap = maps.find(m => m.id === activeMapId);
-      const token = activeMap?.tokens?.find(t => t.id === activeCombatant.id || t.name.toLowerCase() === activeCombatant.name.toLowerCase());
-      if (token) matchingTokenId = token.id;
-    }
-
     set({ 
-      combats: combats.map(c => c.id === combatId ? updated : c),
-      selectedTokenId: matchingTokenId || get().selectedTokenId
+      combats: combats.map(c => c.id === combatId ? updated : c)
     });
   },
 

@@ -182,12 +182,12 @@ export const MapView: React.FC = () => {
   const [showCombatSidebar, setShowCombatSidebar] = useState<boolean>(true);
   const [isCombatSidebarMinimized, setIsCombatSidebarMinimized] = useState<boolean>(false);
   const [sidebarPos, setSidebarPos] = useState<{ x: number; y: number }>({ x: 20, y: 68 });
-  const [sidebarWidth, setSidebarWidth] = useState<number>(240);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(230);
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isResizingSidebar, setIsResizingSidebar] = useState<'left' | 'right' | null>(null);
   const dragSidebarOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const resizeStartX = useRef<number>(0);
-  const resizeStartWidth = useRef<number>(240);
+  const resizeStartWidth = useRef<number>(230);
   const [expandedCombatantId, setExpandedCombatantId] = useState<string | null>(null);
 
   // Dropdowns
@@ -704,10 +704,10 @@ export const MapView: React.FC = () => {
     if (isResizingSidebar) {
       if (isResizingSidebar === 'right') {
         const delta = e.clientX - resizeStartX.current;
-        setSidebarWidth(Math.max(180, Math.min(420, resizeStartWidth.current + delta)));
+        setSidebarWidth(Math.max(170, Math.min(400, resizeStartWidth.current + delta)));
       } else {
         const delta = resizeStartX.current - e.clientX;
-        setSidebarWidth(Math.max(180, Math.min(420, resizeStartWidth.current + delta)));
+        setSidebarWidth(Math.max(170, Math.min(400, resizeStartWidth.current + delta)));
       }
       return;
     }
@@ -2788,33 +2788,6 @@ export const MapView: React.FC = () => {
           }
         }}
       >
-        {/* FLOATING ZOOM CONTROLS (MOVED TO TOP RIGHT UNDER HEADER) */}
-        {activeMap && (
-          <div className="absolute top-4 right-4 z-40 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
-            <button
-              onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
-              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
-              title="Zoom Out (-)"
-            >
-              <ZoomOut size={14} />
-            </button>
-            <button
-              onClick={() => setZoomScale(1)}
-              className="px-2 py-1 rounded-xl hover:bg-white/10 text-[10px] font-mono font-bold text-amber-300 transition-colors"
-              title="Reset Zoom (100%)"
-            >
-              {Math.round(zoomScale * 100)}%
-            </button>
-            <button
-              onClick={() => setZoomScale(prev => Math.min(2.5, prev + 0.15))}
-              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
-              title="Zoom In (+)"
-            >
-              <ZoomIn size={14} />
-            </button>
-          </div>
-        )}
-
         {activeMap && activeMap.imageUrl ? (
           <div 
             ref={mapContainerRef}
@@ -3247,6 +3220,26 @@ export const MapView: React.FC = () => {
             <span className="text-xs">
               No maps loaded. Open the top-left Maps dropdown to choose or upload one!
             </span>
+          </div>
+        )}
+
+        {/* COMPACT FLOATING ZOOM CONTROLS (BOTTOM-RIGHT, ABOVE DICE TRAY) */}
+        {activeMap && (
+          <div className="absolute bottom-16 right-5 z-40 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
+            <button
+              onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
+              title="Zoom Out (-)"
+            >
+              <ZoomOut size={14} />
+            </button>
+            <button
+              onClick={() => setZoomScale(prev => Math.min(2.5, prev + 0.15))}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"
+              title="Zoom In (+)"
+            >
+              <ZoomIn size={14} />
+            </button>
           </div>
         )}
       </div>
