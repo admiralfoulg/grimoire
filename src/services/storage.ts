@@ -93,6 +93,7 @@ export interface MapToken {
   visionRange?: number;
   sightType?: SightType;
   aoe?: TokenAoE;
+  conditions?: string[];
 }
 
 export interface SavedTokenTemplate {
@@ -106,6 +107,7 @@ export interface SavedTokenTemplate {
   isPlayer: boolean;
   visionRange: number;
   sightType: SightType;
+  conditions?: string[];
 }
 
 export type ObstacleType = 'wall' | 'door' | 'chest' | 'table';
@@ -312,7 +314,8 @@ class DatabaseService {
         isPlayer: t.isPlayer ?? false,
         visionRange: t.visionRange ?? 6,
         sightType: t.sightType || 'normal',
-        aoe: t.aoe || { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' }
+        aoe: t.aoe || { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' },
+        conditions: t.conditions || []
       })),
       obstacles: (m.obstacles || []).map(o => ({
         ...o,

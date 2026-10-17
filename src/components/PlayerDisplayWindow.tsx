@@ -2,6 +2,24 @@
 import { ProjectionService, type ProjectionPayload } from '../services/broadcast';
 import { Shield, Sparkles } from 'lucide-react';
 
+const CONDITION_COLORS: Record<string, string> = {
+  Blinded: 'bg-zinc-700 text-zinc-100 border-zinc-500',
+  Charmed: 'bg-pink-700 text-pink-100 border-pink-500',
+  Concentrating: 'bg-blue-600 text-blue-100 border-blue-400',
+  Dead: 'bg-red-950 text-red-200 border-red-700',
+  Frightened: 'bg-amber-700 text-amber-100 border-amber-500',
+  Grappled: 'bg-orange-700 text-orange-100 border-orange-500',
+  Incapacitated: 'bg-purple-800 text-purple-100 border-purple-500',
+  Invisible: 'bg-cyan-800 text-cyan-100 border-cyan-400',
+  Paralyzed: 'bg-yellow-700 text-yellow-100 border-yellow-400',
+  Petrified: 'bg-stone-700 text-stone-100 border-stone-400',
+  Poisoned: 'bg-emerald-700 text-emerald-100 border-emerald-400',
+  Prone: 'bg-indigo-700 text-indigo-100 border-indigo-400',
+  Restrained: 'bg-teal-700 text-teal-100 border-teal-400',
+  Stunned: 'bg-violet-700 text-violet-100 border-violet-400',
+  Unconscious: 'bg-rose-900 text-rose-100 border-rose-600'
+};
+
 export const PlayerDisplayWindow: React.FC = () => {
   const [payload, setPayload] = useState<ProjectionPayload>(ProjectionService.getPayload());
 
@@ -275,9 +293,10 @@ export const PlayerDisplayWindow: React.FC = () => {
               </div>
             ))}
 
-            {/* Projected Tokens with Full Circle Portrait Art */}
+            {/* Projected Tokens with Conditions & Art */}
             {payload.mapType === 'tactical' && (payload.tokens || []).map((token, idx) => {
               const dimensions = getTokenDimensionsStyle(token.size);
+              const isDead = (token.conditions || []).includes('Dead');
 
               return (
                 <div
@@ -291,18 +310,50 @@ export const PlayerDisplayWindow: React.FC = () => {
                     backgroundColor: token.imageUrl ? 'transparent' : (token.color || '#ef4444'),
                     borderColor: token.imageUrl ? (token.color || '#f59e0b') : '#ffffff'
                   }}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-2xl flex flex-col items-center justify-center pointer-events-none transition-all duration-100 overflow-hidden z-40"
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-2xl flex flex-col items-center justify-center pointer-events-none transition-all duration-100 overflow-visible z-40 ${
+                    isDead ? 'opacity-60 grayscale' : ''
+                  }`}
                 >
-                  {token.imageUrl ? (
-                    <img 
-                      src={token.imageUrl} 
-                      alt={token.name} 
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                  ) : (
-                    <span className="font-bold text-white uppercase truncate px-1">
-                      {token.name.substring(0, 2)}
-                    </span>
+                  <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center relative">
+                    {token.imageUrl ? (
+                      <img 
+                        src={token.imageUrl} 
+                        alt={token.name} 
+                        className="w-full h-full object-cover rounded-full"
+                      />
+                    ) : (
+                      <span className="font-bold text-white uppercase truncate px-1">
+                        {token.name.substring(0, 2)}
+                      </span>
+                    )}
+
+                    {/* Red X over dead tokens */}
+                    {isDead && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-red-500 font-extrabold text-lg select-none">
+                        ✕
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Overhead Conditions Stack */}
+                  {(token.conditions || []).length > 0 && (
+                    <div className="absolute -top-4 flex items-center gap-0.5 flex-wrap justify-center pointer-events-none z-50">
+                      {token.conditions!.slice(0, 3).map((cond, cIdx) => (
+                        <span 
+                          key={cIdx} 
+                          className={`px-1 py-0.2 rounded text-[7px] font-bold border uppercase leading-tight ${
+                            CONDITION_COLORS[cond] || 'bg-slate-800 text-slate-200 border-slate-600'
+                          }`}
+                        >
+                          {cond === 'Concentrating' ? 'CONC' : cond}
+                        </span>
+                      ))}
+                      {token.conditions!.length > 3 && (
+                        <span className="px-0.5 text-[6px] font-bold bg-black text-amber-300 rounded border border-amber-500">
+                          +{token.conditions!.length - 3}
+                        </span>
+                      )}
+                    </div>
                   )}
 
                   <span className="absolute -bottom-5 px-1.5 py-0.5 rounded bg-black/85 border border-white/10 text-[8px] font-bold text-slate-100 whitespace-nowrap shadow-md">

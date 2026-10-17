@@ -43,8 +43,45 @@ import {
   RotateCcw,
   Crosshair,
   Zap,
-  MousePointer
+  MousePointer,
+  AlertCircle
 } from 'lucide-react';
+
+const DND_CONDITIONS = [
+  'Blinded',
+  'Charmed',
+  'Concentrating',
+  'Dead',
+  'Frightened',
+  'Grappled',
+  'Incapacitated',
+  'Invisible',
+  'Paralyzed',
+  'Petrified',
+  'Poisoned',
+  'Prone',
+  'Restrained',
+  'Stunned',
+  'Unconscious'
+];
+
+const CONDITION_COLORS: Record<string, string> = {
+  Blinded: 'bg-zinc-700 text-zinc-100 border-zinc-500',
+  Charmed: 'bg-pink-700 text-pink-100 border-pink-500',
+  Concentrating: 'bg-blue-600 text-blue-100 border-blue-400',
+  Dead: 'bg-red-950 text-red-200 border-red-700',
+  Frightened: 'bg-amber-700 text-amber-100 border-amber-500',
+  Grappled: 'bg-orange-700 text-orange-100 border-orange-500',
+  Incapacitated: 'bg-purple-800 text-purple-100 border-purple-500',
+  Invisible: 'bg-cyan-800 text-cyan-100 border-cyan-400',
+  Paralyzed: 'bg-yellow-700 text-yellow-100 border-yellow-400',
+  Petrified: 'bg-stone-700 text-stone-100 border-stone-400',
+  Poisoned: 'bg-emerald-700 text-emerald-100 border-emerald-400',
+  Prone: 'bg-indigo-700 text-indigo-100 border-indigo-400',
+  Restrained: 'bg-teal-700 text-teal-100 border-teal-400',
+  Stunned: 'bg-violet-700 text-violet-100 border-violet-400',
+  Unconscious: 'bg-rose-900 text-rose-100 border-rose-600'
+};
 
 const ChestIcon: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 20 }) => (
   <svg 
@@ -423,7 +460,8 @@ export const MapView: React.FC = () => {
         isPlayer: t.isPlayer,
         visionRange: t.visionRange,
         sightType: t.sightType,
-        aoe: t.aoe
+        aoe: t.aoe,
+        conditions: t.conditions
       }));
 
       ProjectionService.project({
@@ -465,7 +503,8 @@ export const MapView: React.FC = () => {
         isPlayer: t.isPlayer,
         visionRange: t.visionRange,
         sightType: t.sightType,
-        aoe: t.aoe
+        aoe: t.aoe,
+        conditions: t.conditions
       }));
 
       ProjectionService.project({
@@ -580,7 +619,8 @@ export const MapView: React.FC = () => {
         isPlayer: tokenIsPlayer,
         visionRange: tokenVisionRange,
         sightType: tokenSightType,
-        aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' }
+        aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' },
+        conditions: []
       };
 
       addTokenToMap(activeMap.id, newTokenData);
@@ -701,6 +741,14 @@ export const MapView: React.FC = () => {
     updateToken(activeMap.id, { ...token, hpCurrent: newHp });
   };
 
+  const toggleTokenCondition = (token: MapToken, condition: string) => {
+    if (!activeMap) return;
+    const current = token.conditions || [];
+    const exists = current.includes(condition);
+    const updated = exists ? current.filter(c => c !== condition) : [...current, condition];
+    updateToken(activeMap.id, { ...token, conditions: updated });
+  };
+
   const handleSaveToVault = async (token: MapToken) => {
     await saveTokenToVault({
       name: token.name,
@@ -710,7 +758,8 @@ export const MapView: React.FC = () => {
       hpMax: token.hpMax || 30,
       isPlayer: token.isPlayer ?? true,
       visionRange: token.visionRange ?? 6,
-      sightType: token.sightType || 'normal'
+      sightType: token.sightType || 'normal',
+      conditions: token.conditions || []
     });
     setVaultSaveSuccess(true);
     setTimeout(() => setVaultSaveSuccess(false), 2000);
@@ -739,7 +788,8 @@ export const MapView: React.FC = () => {
       isPlayer: template.isPlayer,
       visionRange: template.visionRange,
       sightType: template.sightType,
-      aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' }
+      aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' },
+      conditions: template.conditions || []
     };
 
     addTokenToMap(activeMap.id, newToken);
@@ -773,7 +823,8 @@ export const MapView: React.FC = () => {
       isPlayer: tokenIsPlayer,
       visionRange: tokenVisionRange,
       sightType: tokenSightType,
-      aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' }
+      aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' },
+      conditions: []
     };
 
     addTokenToMap(activeMap.id, newTokenData);
@@ -798,7 +849,8 @@ export const MapView: React.FC = () => {
       isPlayer: !isSecret,
       visionRange: 6,
       sightType: 'normal',
-      aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' }
+      aoe: { shape: 'none', radiusFt: 15, angleDeg: 0, color: '#ef4444' },
+      conditions: []
     });
     setContextMenu(null);
   };
@@ -897,7 +949,6 @@ export const MapView: React.FC = () => {
     }
   };
 
-  // TRUE GRID-BASED AOE RENDERER (1 grid cell = 1 coordinate unit)
   const renderTokenAoEs = () => {
     if (!isTactical) return null;
 
@@ -1926,7 +1977,7 @@ export const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* TOKEN INSPECTOR & SIGHT DRAWER WITH ACTIVE HIGHLIGHT INDICATORS */}
+      {/* TOKEN INSPECTOR & SIGHT DRAWER WITH ACTIVE HIGHLIGHT INDICATORS AND CONDITIONS */}
       {selectedToken && isTactical && (
         <div className="absolute top-16 right-6 z-30 p-4 rounded-2xl bg-[#121824]/95 border border-white/10 shadow-2xl backdrop-blur-md flex flex-col gap-3 text-xs w-84 animate-in fade-in max-h-[85vh] overflow-y-auto">
           <div className="flex items-center justify-between pb-2 border-b border-white/5">
@@ -1974,6 +2025,32 @@ export const MapView: React.FC = () => {
               <span>{selectedToken.imageUrl ? 'Change Art' : 'Upload Art'}</span>
               <input type="file" accept="image/*" className="hidden" onChange={(e) => handleTokenImageUpload(e, selectedToken)} />
             </label>
+          </div>
+
+          {/* D&D 5E CONDITIONS PANEL */}
+          <div className="flex flex-col gap-2 bg-black/40 p-2.5 rounded-xl border border-white/5">
+            <span className="text-amber-400 font-bold flex items-center gap-1.5 text-[11px]">
+              <AlertCircle size={12} /> Status & Conditions
+            </span>
+
+            <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto pr-1">
+              {DND_CONDITIONS.map(cond => {
+                const isActive = (selectedToken.conditions || []).includes(cond);
+                return (
+                  <button
+                    key={cond}
+                    onClick={() => toggleTokenCondition(selectedToken, cond)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                      isActive 
+                        ? `${CONDITION_COLORS[cond]} shadow-sm scale-105` 
+                        : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/5'
+                    }`}
+                  >
+                    {cond}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* CREATURE SPELL / ATTACK AOE SETTINGS WITH VISIBLE HIGHLIGHTS */}
@@ -2705,10 +2782,11 @@ export const MapView: React.FC = () => {
               </div>
             ))}
 
-            {/* TACTICAL MODE: Render Draggable Tokens With Highlight Markers */}
+            {/* TACTICAL MODE: Render Draggable Tokens With Highlight Markers and Condition Rings */}
             {isTactical && (activeMap.tokens || []).map(token => {
               const dimensions = getTokenDimensionsStyle(token.size);
               const isSelected = selectedTokenId === token.id;
+              const isDead = (token.conditions || []).includes('Dead');
               
               const posX = tokenCoordsRef.current[token.id]?.x ?? token.x;
               const posY = tokenCoordsRef.current[token.id]?.y ?? token.y;
@@ -2721,7 +2799,7 @@ export const MapView: React.FC = () => {
                   onContextMenu={(e) => handleMapContextMenu(e, token.id)}
                   className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full cursor-grab active:cursor-grabbing border-2 shadow-2xl z-25 flex flex-col items-center justify-center ${
                     isSelected ? 'ring-4 ring-amber-400 shadow-amber-400/70 scale-110 z-30' : ''
-                  }`}
+                  } ${isDead ? 'opacity-65 grayscale' : ''}`}
                   style={{ 
                     left: `${posX}%`, 
                     top: `${posY}%`,
@@ -2744,25 +2822,34 @@ export const MapView: React.FC = () => {
                   )}
 
                   {/* Token Art */}
-                  {token.imageUrl ? (
-                    <img 
-                      src={token.imageUrl} 
-                      alt={token.name} 
-                      className="w-full h-full object-cover rounded-full pointer-events-none select-none block"
-                    />
-                  ) : (
-                    <>
-                      <span className="font-bold text-white uppercase truncate px-1 pointer-events-none">
-                        {token.name.substring(0, 2)}
-                      </span>
+                  <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center relative">
+                    {token.imageUrl ? (
+                      <img 
+                        src={token.imageUrl} 
+                        alt={token.name} 
+                        className="w-full h-full object-cover rounded-full pointer-events-none select-none block"
+                      />
+                    ) : (
+                      <>
+                        <span className="font-bold text-white uppercase truncate px-1 pointer-events-none">
+                          {token.name.substring(0, 2)}
+                        </span>
 
-                      {token.isPlayer && (
-                        <div className="absolute top-0 left-0 w-3 h-3 rounded-full bg-blue-600 border border-white flex items-center justify-center z-30">
-                          <span className="text-[6px] text-white font-bold leading-none">P</span>
-                        </div>
-                      )}
-                    </>
-                  )}
+                        {token.isPlayer && (
+                          <div className="absolute top-0 left-0 w-3 h-3 rounded-full bg-blue-600 border border-white flex items-center justify-center z-30">
+                            <span className="text-[6px] text-white font-bold leading-none">P</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Red X over dead tokens */}
+                    {isDead && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-red-500 font-extrabold text-lg select-none">
+                        ✕
+                      </div>
+                    )}
+                  </div>
 
                   {token.isSecret && (
                     <div className="absolute top-0 right-0 w-3 h-3 rounded-full bg-red-600 border border-white flex items-center justify-center z-30">
@@ -2770,9 +2857,30 @@ export const MapView: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Overhead Conditions Stack on Battlemap */}
+                  {(token.conditions || []).length > 0 && (
+                    <div className="absolute -top-4 flex items-center gap-0.5 flex-wrap justify-center pointer-events-none z-50">
+                      {token.conditions!.slice(0, 3).map((cond, cIdx) => (
+                        <span 
+                          key={cIdx} 
+                          className={`px-1 py-0.2 rounded text-[7px] font-bold border uppercase leading-tight ${
+                            CONDITION_COLORS[cond] || 'bg-slate-800 text-slate-200 border-slate-600'
+                          }`}
+                        >
+                          {cond === 'Concentrating' ? 'CONC' : cond}
+                        </span>
+                      ))}
+                      {token.conditions!.length > 3 && (
+                        <span className="px-0.5 text-[6px] font-bold bg-black text-amber-300 rounded border border-amber-500">
+                          +{token.conditions!.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Floating Overhead Badge on Selection */}
                   {isSelected && (
-                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-amber-500 text-black font-extrabold text-[8px] uppercase tracking-wider whitespace-nowrap shadow-lg flex items-center gap-1 pointer-events-none animate-bounce">
+                    <div className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-amber-500 text-black font-extrabold text-[8px] uppercase tracking-wider whitespace-nowrap shadow-lg flex items-center gap-1 pointer-events-none">
                       <span>{token.name}</span>
                     </div>
                   )}
