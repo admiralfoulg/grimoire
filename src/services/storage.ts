@@ -194,6 +194,15 @@ export interface SessionRecord {
   updatedAt: number;
 }
 
+export interface CombatSoundTrigger {
+  id: string;
+  worldId: string;
+  name: string;
+  url: string;
+  icon?: string;
+  volume?: number;
+}
+
 interface GrimoireDB extends DBSchema {
   worlds: { key: string; value: World };
   folders: { key: string; value: Folder; indexes: { 'by-world': string } };
@@ -204,10 +213,11 @@ interface GrimoireDB extends DBSchema {
   events: { key: string; value: TimelineEvent; indexes: { 'by-world': string } };
   combats: { key: string; value: CombatEncounter; indexes: { 'by-world': string } };
   sessions: { key: string; value: SessionRecord; indexes: { 'by-world': string } };
+  combatSounds: { key: string; value: CombatSoundTrigger; indexes: { 'by-world': string } };
 }
 
 const DB_NAME = 'grimoire_workstation_db';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 class DatabaseService {
   private dbPromise: Promise<IDBPDatabase<GrimoireDB>>;
@@ -250,6 +260,10 @@ class DatabaseService {
         if (!db.objectStoreNames.contains('sessions')) {
           const sessionStore = db.createObjectStore('sessions', { keyPath: 'id' });
           sessionStore.createIndex('by-world', 'worldId');
+        }
+        if (!db.objectStoreNames.contains('combatSounds')) {
+          const soundStore = db.createObjectStore('combatSounds', { keyPath: 'id' });
+          soundStore.createIndex('by-world', 'worldId');
         }
       }
     });
@@ -409,6 +423,22 @@ class DatabaseService {
   async deleteSession(id: string): Promise<void> {
     const db = await this.dbPromise;
     await db.delete('sessions', id);
+  }
+
+  async listCombatSoundsByWorld(worldId: string): Promise<CombatSoundTrigger[]> {
+    const db = await this.dbPromise;
+    if (!db.objectStoreNames.contains('combatSounds')) return [];
+    return db.getAllFromIndex('combatSounds', 'by-world', worldId);
+  }
+
+  async saveCombatSound(sound: CombatSoundTrigger): Promise<void> {
+    const db = await this.dbPromise;
+    await db.put('combatSounds', sound);
+  }
+
+  async deleteCombatSound(id: string): Promise<void> {
+    const db = await this.dbPromise;
+    await db.delete('combatSounds', id);
   }
 }
 

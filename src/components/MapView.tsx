@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGrimoireStore } from '../store/useGrimoireStore';
 import { ProjectionService, type ActiveRulerData, type PlayerCombatantView } from '../services/broadcast';
-import type { MapToken, MapLighting, SightType, MapObstacle, ObstacleType, SavedTokenTemplate, WorldMap, Combatant } from '../services/storage';
+import type { MapToken, MapLighting, SightType, MapObstacle, ObstacleType, SavedTokenTemplate, WorldMap, Combatant, CombatSoundTrigger } from '../services/storage';
 import { 
   Globe, 
   Swords, 
@@ -53,7 +53,10 @@ import {
   GripHorizontal,
   Minimize2,
   Maximize2,
-  Shield
+  Shield,
+  Volume2,
+  Play,
+  Square as StopSquare
 } from 'lucide-react';
 
 const DND_CONDITIONS = [
@@ -140,6 +143,7 @@ export const MapView: React.FC = () => {
     combats,
     activeCombatId,
     savedTokens,
+    combatSounds,
     selectedTokenId,
     setSelectedTokenId,
     createMap, 
@@ -163,6 +167,8 @@ export const MapView: React.FC = () => {
     toggleDynamicVision,
     setFogCells,
     updateCombat,
+    saveCombatSoundTrigger,
+    deleteCombatSoundTrigger,
     nextTurn,
     prevTurn
   } = useGrimoireStore();
@@ -189,6 +195,15 @@ export const MapView: React.FC = () => {
   const resizeStartX = useRef<number>(0);
   const resizeStartWidth = useRef<number>(230);
   const [expandedCombatantId, setExpandedCombatantId] = useState<string | null>(null);
+
+  // Sound Bar Tool State
+  const [showSoundPopover, setShowSoundPopover] = useState(false);
+  const [activeAudioObj, setActiveAudioObj] = useState<HTMLAudioElement | null>(null);
+  const [playingSoundId, setPlayingSoundId] = useState<string | null>(null);
+  const [isCreatingSound, setIsCreatingSound] = useState(false);
+  const [soundFormName, setSoundFormName] = useState('');
+  const [soundFormIcon, setSoundFormIcon] = useState('⚔️');
+  const [soundFormDataUrl, setSoundFormDataUrl] = useState('');
 
   // Dropdowns
   const [showMapsMenu, setShowMapsMenu] = useState(false);
@@ -297,6 +312,7 @@ export const MapView: React.FC = () => {
       }
       if (e2 < dx) {
         err += dx;
+        currR += sy;
       }
 
       if ((currC !== c1 || currR !== r1) && solidObstaclesSet.has(`${currC},${currR}`)) {
@@ -461,10 +477,57 @@ export const MapView: React.FC = () => {
       setShowFogMenu(false);
       setShowGridDropdown(false);
       setShowAddTokenMenu(false);
+      setShowSoundPopover(false);
     };
     window.addEventListener('click', handleGlobalClick);
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
+
+  const handlePlayCombatSound = (sound: CombatSoundTrigger) => {
+    if (activeAudioObj) {
+      activeAudioObj.pause();
+      activeAudioObj.currentTime = 0;
+    }
+    if (playingSoundId === sound.id) {
+      setPlayingSoundId(null);
+      return;
+    }
+    const audio = new Audio(sound.url);
+    audio.volume = sound.volume ?? 0.8;
+    audio.play().catch(e => console.warn('Audio play failed:', e));
+    audio.onended = () => {
+      setPlayingSoundId(null);
+    };
+    setActiveAudioObj(audio);
+    setPlayingSoundId(sound.id);
+  };
+
+  const handleAddCustomSoundSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!soundFormName.trim() || !soundFormDataUrl.trim()) return;
+    await saveCombatSoundTrigger({
+      name: soundFormName.trim(),
+      url: soundFormDataUrl.trim(),
+      icon: soundFormIcon.trim() || '🔊',
+      volume: 0.8
+    });
+    setSoundFormName('');
+    setSoundFormDataUrl('');
+    setIsCreatingSound(false);
+  };
+
+  const handleSoundFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSoundFormDataUrl(reader.result as string);
+      if (!soundFormName) {
+        setSoundFormName(file.name.replace(/\.[^/.]+$/, ""));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const unsub = ProjectionService.subscribe(payload => {
@@ -1197,6 +1260,7 @@ export const MapView: React.FC = () => {
                 setShowFogMenu(false);
                 setShowGridDropdown(false);
                 setShowAddTokenMenu(false);
+                setShowSoundPopover(false);
                 setMapContextMenu(null);
                 setRosterContextMenu(null);
               }}
@@ -1436,6 +1500,127 @@ export const MapView: React.FC = () => {
         <div className="flex items-center gap-1.5">
           {activeMap && (
             <>
+              {/* COMBAT SOUND TRIGGER TOOL */}
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowSoundPopover(!showSoundPopover);
+                    setShowObjectsMenu(false);
+                    setShowFogMenu(false);
+                    setShowGridDropdown(false);
+                    setShowAddTokenMenu(false);
+                  }}
+                  className={`p-2 rounded-xl text-xs font-bold transition-all border ${
+                    showSoundPopover || playingSoundId
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-md ring-2 ring-amber-400/50'
+                      : 'bg-black/40 hover:bg-black/60 text-amber-300 border-white/5'
+                  }`}
+                  title="Combat Audio Effects & SFX Trigger"
+                >
+                  <Volume2 size={15} className={playingSoundId ? 'animate-bounce' : ''} />
+                </button>
+
+                {showSoundPopover && (
+                  <div 
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-11 right-0 z-50 p-3 rounded-2xl bg-[#121824] border border-white/15 shadow-2xl flex flex-col gap-2.5 w-64 animate-in fade-in"
+                  >
+                    <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-400 text-xs">
+                        <Volume2 size={13} />
+                        <span>Combat SFX</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setIsCreatingSound(!isCreatingSound)}
+                          className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-bold"
+                          title="Add / Upload custom audio"
+                        >
+                          {isCreatingSound ? 'Cancel' : '+ Add SFX'}
+                        </button>
+                        <button onClick={() => setShowSoundPopover(false)} className="text-slate-500 hover:text-white">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* New Sound Creator Drawer */}
+                    {isCreatingSound ? (
+                      <form onSubmit={handleAddCustomSoundSubmit} className="flex flex-col gap-2 bg-black/40 p-2 rounded-xl border border-white/5">
+                        <span className="text-[9px] uppercase font-bold text-slate-400">Add Sound Effect</span>
+                        <input
+                          type="text"
+                          placeholder="Name (e.g. Fireball, Sword Clash)"
+                          value={soundFormName}
+                          onChange={e => setSoundFormName(e.target.value)}
+                          className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-amber-500"
+                        />
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            placeholder="Emoji"
+                            value={soundFormIcon}
+                            onChange={e => setSoundFormIcon(e.target.value)}
+                            className="w-12 bg-black/60 border border-white/10 rounded px-1 text-center text-xs text-white outline-none"
+                          />
+                          <label className="flex-1 px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-amber-300 border border-white/10 cursor-pointer text-center text-[10px] font-bold">
+                            <span>{soundFormDataUrl ? '✓ File Loaded' : 'Upload Audio'}</span>
+                            <input type="file" accept="audio/*" className="hidden" onChange={handleSoundFileUpload} />
+                          </label>
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={!soundFormName || !soundFormDataUrl}
+                          className="py-1 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-bold text-[10px] transition-colors"
+                        >
+                          Save SFX Trigger
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-0.5">
+                        {combatSounds.map(s => {
+                          const isPlaying = playingSoundId === s.id;
+                          return (
+                            <div 
+                              key={s.id}
+                              className={`p-1.5 rounded-xl border flex items-center justify-between text-xs transition-colors group ${
+                                isPlaying ? 'bg-amber-500/20 border-amber-400 text-amber-200' : 'bg-white/5 border-white/5 hover:bg-white/10 text-slate-300'
+                              }`}
+                            >
+                              <button 
+                                onClick={() => handlePlayCombatSound(s)}
+                                className="flex items-center gap-2 flex-1 text-left overflow-hidden"
+                              >
+                                <span className="text-sm shrink-0">{s.icon || '🔊'}</span>
+                                <span className="font-bold text-[11px] truncate">{s.name}</span>
+                              </button>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handlePlayCombatSound(s)}
+                                  className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white"
+                                  title={isPlaying ? "Stop" : "Play"}
+                                >
+                                  {isPlaying ? <StopSquare size={11} className="text-red-400 fill-current" /> : <Play size={11} className="fill-current text-emerald-400" />}
+                                </button>
+                                <button
+                                  onClick={() => deleteCombatSoundTrigger(s.id)}
+                                  className="p-1 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="Delete sound effect"
+                                >
+                                  <Trash2 size={11} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* INITIATIVE SIDEBAR TOGGLE ICON */}
               {isTactical && activeCombat && (
                 <button
@@ -1519,6 +1704,7 @@ export const MapView: React.FC = () => {
                       setShowGridDropdown(false);
                       setShowMapsMenu(false);
                       setShowAddTokenMenu(false);
+                      setShowSoundPopover(false);
                       setRosterContextMenu(null);
                     }}
                     className={`p-2 rounded-xl text-xs font-bold transition-colors border ${
@@ -1623,6 +1809,7 @@ export const MapView: React.FC = () => {
                       setShowGridDropdown(false);
                       setShowMapsMenu(false);
                       setShowAddTokenMenu(false);
+                      setShowSoundPopover(false);
                       setRosterContextMenu(null);
                     }}
                     className={`p-2 rounded-xl text-xs font-bold transition-colors border ${
@@ -1707,9 +1894,9 @@ export const MapView: React.FC = () => {
                       setShowGridDropdown(!showGridDropdown);
                       setShowObjectsMenu(false);
                       setShowFogMenu(false);
-                      setShowGridDropdown(false);
                       setShowMapsMenu(false);
                       setShowAddTokenMenu(false);
+                      setShowSoundPopover(false);
                       setRosterContextMenu(null);
                     }}
                     className={`p-2 rounded-xl text-xs font-bold transition-all border ${
@@ -1824,7 +2011,7 @@ export const MapView: React.FC = () => {
                 )}
               </button>
 
-              {/* TOOL PRIMARY ACTION */}
+              {/* TOOL PRIMARY ACTION: ADD PIN (World) or ADD TOKEN DROPDOWN (Tactical) */}
               {!isTactical ? (
                 <button
                   onClick={() => setIsAddingPin(!isAddingPin)}
@@ -1846,6 +2033,7 @@ export const MapView: React.FC = () => {
                       setShowObjectsMenu(false);
                       setShowFogMenu(false);
                       setShowGridDropdown(false);
+                      setShowSoundPopover(false);
                       setRosterContextMenu(null);
                     }}
                     className={`p-2 rounded-xl text-xs font-bold transition-all border ${
@@ -2236,13 +2424,11 @@ export const MapView: React.FC = () => {
                     <div
                       key={c.id}
                       onClick={() => {
-                        // Left-Click: ONLY toggle the quick inline HP adjustment drawer
                         setExpandedCombatantId(isExpanded ? null : c.id);
                       }}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        // Right-Click: Open the FULL Token Controls drawer on the right side
                         const match = activeMap?.tokens?.find(t => t.id === c.id || t.name.toLowerCase() === c.name.toLowerCase());
                         if (match) {
                           setSelectedTokenId(match.id);
@@ -2284,7 +2470,7 @@ export const MapView: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* INLINE HP ADJUSTMENT CONTROLS (OPENS ON L-CLICK ONLY) */}
+                      {/* INLINE HP ADJUSTMENT CONTROLS */}
                       {isExpanded && (
                         <div 
                           onClick={(e) => e.stopPropagation()}
@@ -3292,9 +3478,9 @@ export const MapView: React.FC = () => {
           </div>
         )}
 
-        {/* COMPACT FLOATING ZOOM CONTROLS (DOCKED BOTTOM-RIGHT NEXT TO THE NEW DICE ICON) */}
+        {/* COMPACT FLOATING ZOOM CONTROLS (DOCKED DIRECTLY NEXT TO THE COMPACT DICE ICON) */}
         {activeMap && (
-          <div className="fixed bottom-3 right-16 z-50 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
+          <div className="fixed bottom-3 right-14 z-50 flex items-center gap-1 bg-[#121824]/90 backdrop-blur-md border border-white/10 p-1 rounded-2xl shadow-2xl">
             <button
               onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
               className="p-1.5 rounded-xl hover:bg-white/10 text-slate-300 transition-colors"

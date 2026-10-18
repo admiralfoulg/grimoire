@@ -15,10 +15,17 @@ import {
   type TimelineEvent,
   type CombatEncounter,
   type Combatant,
-  type SessionRecord
+  type SessionRecord,
+  type CombatSoundTrigger
 } from '../services/storage';
 
 export type ActiveView = 'editor' | 'map' | 'graph' | 'timeline' | 'combat' | 'sessions' | 'soundboard' | 'reader' | 'settings';
+
+const DEFAULT_COMBAT_SOUNDS: Omit<CombatSoundTrigger, 'id' | 'worldId'>[] = [
+  { name: 'Thunder Clap', url: '/audio/Rain-thunder.mp3', icon: '⚡', volume: 0.8 },
+  { name: 'Catacombs Roar', url: '/audio/Catacombs.mp3', icon: '💀', volume: 0.7 },
+  { name: 'Campfire Crackle', url: '/audio/fireplace.mp3', icon: '🔥', volume: 0.6 }
+];
 
 interface GrimoireState {
   worlds: World[];
@@ -31,6 +38,7 @@ interface GrimoireState {
   events: TimelineEvent[];
   combats: CombatEncounter[];
   sessions: SessionRecord[];
+  combatSounds: CombatSoundTrigger[];
   activeCombatId: string | null;
   activeSessionId: string | null;
 
@@ -97,6 +105,9 @@ interface GrimoireState {
   importMapTokensToCombat: (mapId: string, combatId: string) => Promise<void>;
   deployCombatantsToMap: (combatId: string, mapId: string) => Promise<void>;
 
+  saveCombatSoundTrigger: (soundData: Omit<CombatSoundTrigger, 'id' | 'worldId'>) => Promise<CombatSoundTrigger>;
+  deleteCombatSoundTrigger: (id: string) => Promise<void>;
+
   createSession: (title: string) => Promise<SessionRecord>;
   updateSession: (session: SessionRecord) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
@@ -117,6 +128,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   events: [],
   combats: [],
   sessions: [],
+  combatSounds: [],
   activeCombatId: null,
   activeSessionId: null,
   activeView: 'editor',
@@ -148,6 +160,19 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       const events = await StorageService.listEventsByWorld(current.id);
       const combats = await StorageService.listCombatsByWorld(current.id);
       const sessions = await StorageService.listSessionsByWorld(current.id);
+      let combatSounds = await StorageService.listCombatSoundsByWorld(current.id);
+
+      if (combatSounds.length === 0) {
+        for (const ds of DEFAULT_COMBAT_SOUNDS) {
+          const item: CombatSoundTrigger = {
+            id: crypto.randomUUID(),
+            worldId: current.id,
+            ...ds
+          };
+          await StorageService.saveCombatSound(item);
+          combatSounds.push(item);
+        }
+      }
 
       set({ 
         worlds, 
@@ -160,6 +185,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
         events, 
         combats,
         sessions,
+        combatSounds,
         activeCombatId: combats[0]?.id || null,
         activeSessionId: sessions[0]?.id || null,
         activeCardId: cards[0]?.id || null, 
@@ -181,6 +207,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     const events = await StorageService.listEventsByWorld(world.id);
     const combats = await StorageService.listCombatsByWorld(world.id);
     const sessions = await StorageService.listSessionsByWorld(world.id);
+    const combatSounds = await StorageService.listCombatSoundsByWorld(world.id);
 
     set({
       currentWorld: world,
@@ -192,6 +219,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       events,
       combats,
       sessions,
+      combatSounds,
       activeCombatId: combats[0]?.id || null,
       activeSessionId: sessions[0]?.id || null,
       activeCardId: cards[0]?.id || null,
@@ -211,7 +239,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     };
     await StorageService.saveWorld(newWorld);
     const worlds = await StorageService.listWorlds();
-    set({ worlds, currentWorld: newWorld, cards: [], folders: [], maps: [], savedTokens: [], relationships: [], events: [], combats: [], sessions: [], activeCardId: null, activeMapId: null, selectedTokenId: null });
+    set({ worlds, currentWorld: newWorld, cards: [], folders: [], maps: [], savedTokens: [], relationships: [], events: [], combats: [], sessions: [], combatSounds: [], activeCardId: null, activeMapId: null, selectedTokenId: null });
     return newWorld;
   },
 
@@ -768,11 +796,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     };
 
     await StorageService.saveCombat(updated);
-
-    // Keep active turn updated without hijacking selectedTokenId (which opened the right controls drawer)
-    set({ 
-      combats: combats.map(c => c.id === combatId ? updated : c)
-    });
+    set({ combats: combats.map(c => c.id === combatId ? updated : c) });
   },
 
   prevTurn: async (combatId) => {
@@ -800,10 +824,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     };
 
     await StorageService.saveCombat(updated);
-
-    set({ 
-      combats: combats.map(c => c.id === combatId ? updated : c)
-    });
+    set({ combats: combats.map(c => c.id === combatId ? updated : c) });
   },
 
   importMapTokensToCombat: async (mapId, combatId) => {
@@ -883,6 +904,27 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     const updatedMap: WorldMap = { ...targetMap, tokens: newTokens, updatedAt: Date.now() };
     await StorageService.saveMap(updatedMap);
     set({ maps: maps.map(m => m.id === mapId ? updatedMap : m) });
+  },
+
+  saveCombatSoundTrigger: async (soundData) => {
+    const { currentWorld, worlds, combatSounds } = get();
+    const worldId = currentWorld?.id || worlds[0]?.id || 'default-realm';
+
+    const newSound: CombatSoundTrigger = {
+      id: crypto.randomUUID(),
+      worldId,
+      ...soundData
+    };
+
+    await StorageService.saveCombatSound(newSound);
+    set({ combatSounds: [newSound, ...combatSounds] });
+    return newSound;
+  },
+
+  deleteCombatSoundTrigger: async (id) => {
+    const { combatSounds } = get();
+    await StorageService.deleteCombatSound(id);
+    set({ combatSounds: combatSounds.filter(s => s.id !== id) });
   },
 
   createSession: async (title) => {

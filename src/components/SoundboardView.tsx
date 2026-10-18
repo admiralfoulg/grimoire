@@ -1,50 +1,56 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { SoundboardService } from '../services/soundboard';
-import { 
-  Volume2, 
-  CloudRain, 
-  Flame, 
-  Skull, 
-  Sparkles, 
-  Swords, 
-  Coins, 
+import type { CustomAudioTrack, SoundboardPreset } from '../services/soundboard';
+import { ProjectionService } from '../services/broadcast';
+import {
+  Volume2,
+  CloudRain,
+  Flame,
+  Skull,
+  Sparkles,
+  Swords,
+  Coins,
   AlertTriangle,
   Play,
   Square,
   Upload,
   Trash2,
-  Music
+  Music,
+  Bookmark,
+  Zap,
+  Sliders,
+  Tv
 } from 'lucide-react';
 
-interface AmbienceChannel {
+interface BuiltinChannel {
   id: string;
   name: string;
-  fileBasenames: string[]; // Variations to match Windows case/extension differences
+  fileBasenames: string[];
   icon: React.ReactNode;
   description: string;
 }
 
-const BUILTIN_AMBIENCE: AmbienceChannel[] = [
-  { 
-    id: 'amb-fire', 
-    name: 'Campfire & Hearth', 
+const BUILTIN_CHANNELS: BuiltinChannel[] = [
+  {
+    id: 'amb-fire',
+    name: 'Campfire & Hearth',
     fileBasenames: ['fireplace.mp3', 'fireplace.mp3.mp3', 'Fireplace.mp3'],
-    icon: <Flame size={18} className="text-amber-400" />, 
-    description: 'Warm embers and gentle crackling pine' 
+    icon: <Flame size={18} className="text-amber-400" />,
+    description: 'Warm crackling embers and glowing hearth'
   },
-  { 
-    id: 'amb-rain', 
-    name: 'Thunderous Rainfall', 
-    fileBasenames: ['Rain-thunder.mp3', 'Rain-thunder.mp3.mp3', 'rain-thunder.mp3', 'rain.mp3'],
-    icon: <CloudRain size={18} className="text-blue-400" />, 
-    description: 'Continuous storm downpour and low rumble' 
+  {
+    id: 'amb-rain',
+    name: 'Thunderous Rainfall',
+    fileBasenames: ['Rain-thunder.mp3', 'Rain-thunder.mp3.mp3', 'rain-thunder.mp3'],
+    icon: <CloudRain size={18} className="text-blue-400" />,
+    description: 'Relentless storm downpour and distant thunder'
   },
-  { 
-    id: 'amb-crypt', 
-    name: 'Whispering Catacomb', 
+  {
+    id: 'amb-crypt',
+    name: 'Whispering Catacomb',
     fileBasenames: ['Catacombs.mp3', 'Catacombs.mp3.mp3', 'catacombs.mp3'],
-    icon: <Skull size={18} className="text-purple-400" />, 
-    description: 'Deep eerie atmospheric dungeon ambiance' 
+    icon: <Skull size={18} className="text-purple-400" />,
+    description: 'Subsonic dungeon drone and spectral whispers'
   }
 ];
 
@@ -55,97 +61,81 @@ export const SoundboardView: React.FC = () => {
     'amb-rain': 0.5,
     'amb-crypt': 0.5
   });
-  const [customTracks, setCustomTracks] = useState<{ id: string; name: string; type: 'ambience' | 'sfx' }[]>([]);
-
-  // Persistent audio elements for the 3 primary loops
-  const audioElementsRef = useRef<Record<string, HTMLAudioElement>>({});
+  const [customTracks, setCustomTracks] = useState<CustomAudioTrack[]>([]);
+  const [presets, setPresets] = useState<SoundboardPreset[]>([]);
+  const [newPresetName, setNewPresetName] = useState('');
+  const [isCreatingPreset, setIsCreatingPreset] = useState(false);
+  const [syncToPlayerDisplay, setSyncToPlayerDisplay] = useState(true);
 
   const ambienceUploadRef = useRef<HTMLInputElement | null>(null);
   const sfxUploadRef = useRef<HTMLInputElement | null>(null);
 
-  const loadTracks = async () => {
-    const list = await SoundboardService.listCustomTracks();
-    setCustomTracks(list);
+  const reloadData = async () => {
+    const [t, p] = await Promise.all([
+      SoundboardService.listTracks(),
+      SoundboardService.listPresets()
+    ]);
+    setCustomTracks(t);
+    setPresets(p);
   };
 
   useEffect(() => {
-    loadTracks();
-
-    const cacheBuster = Date.now();
-    const elements: Record<string, HTMLAudioElement> = {};
-
-    BUILTIN_AMBIENCE.forEach(ch => {
-      const primaryUrl = `/audio/${ch.fileBasenames[0]}?t=${cacheBuster}`;
-      const audio = new Audio(primaryUrl);
-      audio.loop = true;
-      audio.preload = 'auto';
-
-      let fallbackIndex = 0;
-      audio.onerror = () => {
-        fallbackIndex += 1;
-        if (fallbackIndex < ch.fileBasenames.length) {
-          audio.src = `/audio/${ch.fileBasenames[fallbackIndex]}?t=${cacheBuster}`;
-          audio.load();
-        }
-      };
-
-      elements[ch.id] = audio;
-    });
-
-    audioElementsRef.current = elements;
-
-    return () => {
-      Object.values(elements).forEach(audio => {
-        audio.pause();
-        audio.src = '';
-      });
-    };
+    void reloadData();
   }, []);
 
-  const toggleBuiltinTrack = async (channel: AmbienceChannel) => {
-    const id = channel.id;
-    const vol = volumes[id] ?? 0.5;
-    const audio = audioElementsRef.current[id];
-
-    if (!audio) return;
-
-    if (!audio.paused) {
-      audio.pause();
-      audio.currentTime = 0;
-      setActiveStates(prev => ({ ...prev, [id]: false }));
-    } else {
-      audio.volume = vol;
-      try {
-        await audio.play();
-        setActiveStates(prev => ({ ...prev, [id]: true }));
-      } catch (err) {
-        console.error(`Audio playback error for ${channel.name}:`, err);
-        alert(`Could not play ${channel.name}. Ensure ${channel.fileBasenames[0]} is placed inside public/audio/.`);
-      }
+  const triggerSfx = (type: 'crit' | 'fail' | 'sword' | 'magic' | 'coins' | 'thunder') => {
+    SoundboardService.playProceduralSfx(type);
+    if (syncToPlayerDisplay) {
+      ProjectionService.project({
+        type: 'AUDIO',
+        audioType: type
+      });
     }
   };
 
+  const triggerCustomSfx = (id: string) => {
+    SoundboardService.playCustomSfx(id);
+    if (syncToPlayerDisplay) {
+      ProjectionService.project({
+        type: 'AUDIO',
+        audioType: 'custom',
+        audioCustomId: id
+      });
+    }
+  };
+
+  const toggleBuiltin = async (channel: BuiltinChannel) => {
+    const currentPlaying = activeStates[channel.id];
+    if (currentPlaying) {
+      SoundboardService.stopChannel(channel.id);
+      setActiveStates(prev => ({ ...prev, [channel.id]: false }));
+      return;
+    }
+
+    const vol = volumes[channel.id] ?? 0.5;
+    const url = `/audio/${channel.fileBasenames[0]}?t=${Date.now()}`;
+    const started = await SoundboardService.playStaticOrUrlAmbience(channel.id, url, vol);
+    setActiveStates(prev => ({ ...prev, [channel.id]: started }));
+  };
+
   const toggleCustomLoop = async (id: string) => {
+    const currentPlaying = activeStates[id];
+    if (currentPlaying) {
+      SoundboardService.stopChannel(id);
+      setActiveStates(prev => ({ ...prev, [id]: false }));
+      return;
+    }
     const vol = volumes[id] ?? 0.5;
-    const isNowPlaying = await SoundboardService.toggleCustomAmbience(id, vol);
-    setActiveStates(prev => ({ ...prev, [id]: isNowPlaying }));
+    const started = await SoundboardService.toggleCustomAmbience(id, vol);
+    setActiveStates(prev => ({ ...prev, [id]: started }));
   };
 
   const handleVolumeChange = (id: string, vol: number) => {
     setVolumes(prev => ({ ...prev, [id]: vol }));
-    const audio = audioElementsRef.current[id];
-    if (audio) {
-      audio.volume = vol;
-    } else {
-      SoundboardService.setVolume(id, vol);
-    }
+    SoundboardService.setVolume(id, vol);
   };
 
   const handleStopAll = () => {
-    Object.values(audioElementsRef.current).forEach(audio => {
-      audio.pause();
-      audio.currentTime = 0;
-    });
     SoundboardService.stopAll();
     setActiveStates({});
   };
@@ -153,19 +143,54 @@ export const SoundboardView: React.FC = () => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'ambience' | 'sfx') => {
     const file = e.target.files?.[0];
     if (!file) return;
-    await SoundboardService.saveCustomTrack(file, type);
-    await loadTracks();
+    await SoundboardService.saveTrack(file, type);
+    await reloadData();
     e.target.value = '';
   };
 
-  const handleDeleteCustom = async (id: string) => {
-    await SoundboardService.deleteCustomTrack(id);
+  const handleDeleteTrack = async (id: string) => {
+    await SoundboardService.deleteTrack(id);
     setActiveStates(prev => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
-    await loadTracks();
+    await reloadData();
+  };
+
+  const handleSavePreset = async () => {
+    if (!newPresetName.trim()) return;
+    const activeIds = Object.keys(activeStates).filter(k => activeStates[k]);
+    await SoundboardService.savePreset(newPresetName.trim(), activeIds, volumes);
+    setNewPresetName('');
+    setIsCreatingPreset(false);
+    await reloadData();
+  };
+
+  const handleApplyPreset = async (preset: SoundboardPreset) => {
+    handleStopAll();
+    const newActive: Record<string, boolean> = {};
+    const newVols = { ...volumes, ...preset.volumes };
+    setVolumes(newVols);
+
+    for (const channelId of preset.activeChannelIds) {
+      const builtin = BUILTIN_CHANNELS.find(b => b.id === channelId);
+      const vol = newVols[channelId] ?? 0.5;
+      if (builtin) {
+        const url = `/audio/${builtin.fileBasenames[0]}?t=${Date.now()}`;
+        const started = await SoundboardService.playStaticOrUrlAmbience(channelId, url, vol);
+        if (started) newActive[channelId] = true;
+      } else {
+        const started = await SoundboardService.toggleCustomAmbience(channelId, vol);
+        if (started) newActive[channelId] = true;
+      }
+    }
+    setActiveStates(newActive);
+  };
+
+  const handleDeletePreset = async (id: string) => {
+    await SoundboardService.deletePreset(id);
+    await reloadData();
   };
 
   const customLoops = customTracks.filter(t => t.type === 'ambience');
@@ -175,24 +200,45 @@ export const SoundboardView: React.FC = () => {
     <div className="flex-1 flex flex-col h-full bg-[#0a0d13] text-slate-200 select-none overflow-hidden font-sans">
       <div className="h-14 px-8 border-b border-white/5 bg-[#121620]/90 backdrop-blur-md flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <Volume2 size={16} className="text-amber-400" />
+          <Volume2 size={18} className="text-amber-400" />
           <span className="text-xs font-bold uppercase tracking-wider text-slate-100">
             Table Atmosphere & Audio Engine
           </span>
           <span className="text-xs text-slate-500 font-mono">
-            (Offline Local Audio)
+            (Multi-Channel Offline Mixer)
           </span>
         </div>
 
-        <button
-          onClick={handleStopAll}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 text-xs font-semibold transition-colors"
-        >
-          <Square size={11} /> Stop All Audio
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSyncToPlayerDisplay(p => !p)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+              syncToPlayerDisplay
+                ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                : 'bg-white/5 border-white/10 text-slate-500'
+            }`}
+            title="When active, triggers SFX through player display window too"
+          >
+            <Tv size={13} />
+            <span>Cast to Table: {syncToPlayerDisplay ? 'ON' : 'OFF'}</span>
+          </button>
+
+          <button
+            onClick={() => setIsCreatingPreset(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-semibold transition-colors"
+          >
+            <Bookmark size={13} className="text-amber-400" /> Save Preset
+          </button>
+          <button
+            onClick={handleStopAll}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 text-xs font-semibold transition-colors"
+          >
+            <Square size={11} /> Stop All Audio
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8 max-w-5xl mx-auto w-full flex flex-col gap-8">
+      <div className="flex-1 overflow-y-auto p-8 max-w-6xl mx-auto w-full flex flex-col gap-8">
         <input
           ref={ambienceUploadRef}
           type="file"
@@ -208,16 +254,78 @@ export const SoundboardView: React.FC = () => {
           onChange={e => handleFileUpload(e, 'sfx')}
         />
 
-        {/* Ambient Loops */}
+        {isCreatingPreset && (
+          <div className="p-4 rounded-2xl bg-[#141b26] border border-amber-500/30 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Bookmark size={16} className="text-amber-400" />
+              <span className="text-xs font-semibold text-slate-200">
+                Save active atmosphere configuration:
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-1 max-w-sm">
+              <input
+                type="text"
+                placeholder="e.g. Rainy Tavern Ambush..."
+                value={newPresetName}
+                onChange={e => setNewPresetName(e.target.value)}
+                className="w-full bg-[#0b0e14] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-400"
+              />
+              <button
+                onClick={handleSavePreset}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs rounded-lg transition-colors shrink-0"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setIsCreatingPreset(false)}
+                className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-400 text-xs rounded-lg transition-colors shrink-0"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {presets.length > 0 && (
+          <div className="flex flex-col gap-2.5">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <Bookmark size={13} className="text-amber-400" /> Atmosphere Presets ({presets.length})
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {presets.map(p => (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#141b25] border border-white/10 hover:border-amber-500/30 transition-colors"
+                >
+                  <button
+                    onClick={() => handleApplyPreset(p)}
+                    className="text-xs font-semibold text-slate-200 hover:text-amber-400 flex items-center gap-1.5"
+                  >
+                    <Play size={10} className="text-amber-400 fill-amber-400" />
+                    {p.name}
+                  </button>
+                  <button
+                    onClick={() => handleDeletePreset(p.id)}
+                    className="text-slate-600 hover:text-red-400 transition-colors ml-1"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
-            Ambient Background Loops
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <Sliders size={14} /> Core Environmental Channels
+            </span>
+          </div>
 
           <div className="grid grid-cols-3 gap-4">
-            {BUILTIN_AMBIENCE.map(ch => {
+            {BUILTIN_CHANNELS.map(ch => {
               const isPlaying = Boolean(activeStates[ch.id]);
-
               return (
                 <div
                   key={ch.id}
@@ -232,15 +340,17 @@ export const SoundboardView: React.FC = () => {
                       <div className="p-2 rounded-xl bg-white/5">{ch.icon}</div>
                       <div>
                         <h4 className="text-xs font-bold text-slate-100">{ch.name}</h4>
-                        <span className="text-[10px] text-slate-500">{isPlaying ? 'Playing loop' : 'Muted'}</span>
+                        <span className="text-[10px] text-slate-500">
+                          {isPlaying ? 'Active Channel' : 'Muted'}
+                        </span>
                       </div>
                     </div>
 
                     <button
-                      onClick={() => toggleBuiltinTrack(ch)}
+                      onClick={() => toggleBuiltin(ch)}
                       className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                        isPlaying 
-                          ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30' 
+                        isPlaying
+                          ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30'
                           : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
                       }`}
                     >
@@ -248,7 +358,7 @@ export const SoundboardView: React.FC = () => {
                     </button>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
                     {ch.description}
                   </p>
 
@@ -270,21 +380,25 @@ export const SoundboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* Custom Uploaded Loops */}
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Music size={14} /> Custom Music & Loops ({customLoops.length})
+              <Music size={14} /> Custom Audio & Ambient Loops ({customLoops.length})
             </span>
             <button
               onClick={() => ambienceUploadRef.current?.click()}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs transition-colors"
             >
-              <Upload size={12} /> Upload Music (.mp3, .wav)
+              <Upload size={12} /> Upload Audio (.mp3, .wav, .ogg)
             </button>
           </div>
 
-          {customLoops.length > 0 && (
+          {customLoops.length === 0 ? (
+            <div className="p-6 rounded-2xl border border-dashed border-white/10 text-center flex flex-col items-center justify-center gap-1.5">
+              <span className="text-xs text-slate-400">No custom ambient loops uploaded.</span>
+              <span className="text-[10px] text-slate-600">Files are decoded and saved locally in IndexedDB.</span>
+            </div>
+          ) : (
             <div className="grid grid-cols-3 gap-4">
               {customLoops.map(track => {
                 const isPlaying = Boolean(activeStates[track.id]);
@@ -312,17 +426,16 @@ export const SoundboardView: React.FC = () => {
                         <button
                           onClick={() => toggleCustomLoop(track.id)}
                           className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
-                            isPlaying 
-                              ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30' 
+                            isPlaying
+                              ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30'
                               : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
                           }`}
                         >
                           {isPlaying ? <Square size={11} /> : <Play size={11} className="ml-0.5" />}
                         </button>
                         <button
-                          onClick={() => handleDeleteCustom(track.id)}
+                          onClick={() => handleDeleteTrack(track.id)}
                           className="p-1 hover:text-red-400 text-slate-600 transition-colors"
-                          title="Delete track"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -348,11 +461,10 @@ export const SoundboardView: React.FC = () => {
           )}
         </div>
 
-        {/* Custom SFX */}
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              Custom Sound Effect Pads ({customSfx.length})
+              <Zap size={14} className="text-amber-400" /> Table SFX & Combat Action Pads
             </span>
             <button
               onClick={() => sfxUploadRef.current?.click()}
@@ -362,69 +474,39 @@ export const SoundboardView: React.FC = () => {
             </button>
           </div>
 
-          {customSfx.length > 0 && (
-            <div className="flex flex-wrap gap-2.5">
-              {customSfx.map(s => (
-                <div key={s.id} className="flex items-center gap-1.5 bg-[#141b25] border border-white/10 rounded-xl px-3 py-2">
-                  <button
-                    onClick={() => SoundboardService.playCustomSfx(s.id)}
-                    className="flex items-center gap-2 text-xs font-semibold text-slate-200 hover:text-amber-400"
-                  >
-                    <Play size={10} className="text-amber-400 fill-amber-400" />
-                    <span className="truncate max-w-[140px]">{s.name}</span>
-                  </button>
-                  <button
-                    onClick={() => handleDeleteCustom(s.id)}
-                    className="text-slate-600 hover:text-red-400 ml-1.5"
-                    title="Remove SFX"
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Built-in SFX */}
-        <div className="flex flex-col gap-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Table SFX Pads
-          </span>
-
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-6 gap-3">
             <button
-              onClick={() => SoundboardService.playSfx('crit')}
+              onClick={() => triggerSfx('crit')}
               className="p-3.5 rounded-2xl bg-[#141b25] border border-white/5 hover:border-amber-500/40 hover:bg-amber-500/10 transition-all flex flex-col items-center gap-2 group cursor-pointer"
             >
               <div className="w-9 h-9 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Sparkles size={16} />
               </div>
-              <span className="text-xs font-bold text-slate-200">Critical Success</span>
+              <span className="text-xs font-bold text-slate-200">Crit Fanfare</span>
             </button>
 
             <button
-              onClick={() => SoundboardService.playSfx('fail')}
+              onClick={() => triggerSfx('fail')}
               className="p-3.5 rounded-2xl bg-[#141b25] border border-white/5 hover:border-red-500/40 hover:bg-red-500/10 transition-all flex flex-col items-center gap-2 group cursor-pointer"
             >
               <div className="w-9 h-9 rounded-full bg-red-500/20 text-red-300 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <AlertTriangle size={16} />
               </div>
-              <span className="text-xs font-bold text-slate-200">Critical Fumble</span>
+              <span className="text-xs font-bold text-slate-200">Crit Fumble</span>
             </button>
 
             <button
-              onClick={() => SoundboardService.playSfx('sword')}
+              onClick={() => triggerSfx('sword')}
               className="p-3.5 rounded-2xl bg-[#141b25] border border-white/5 hover:border-blue-500/40 hover:bg-blue-500/10 transition-all flex flex-col items-center gap-2 group cursor-pointer"
             >
               <div className="w-9 h-9 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Swords size={16} />
               </div>
-              <span className="text-xs font-bold text-slate-200">Sword Clash</span>
+              <span className="text-xs font-bold text-slate-200">Blade Clash</span>
             </button>
 
             <button
-              onClick={() => SoundboardService.playSfx('magic')}
+              onClick={() => triggerSfx('magic')}
               className="p-3.5 rounded-2xl bg-[#141b25] border border-white/5 hover:border-purple-500/40 hover:bg-purple-500/10 transition-all flex flex-col items-center gap-2 group cursor-pointer"
             >
               <div className="w-9 h-9 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -434,7 +516,7 @@ export const SoundboardView: React.FC = () => {
             </button>
 
             <button
-              onClick={() => SoundboardService.playSfx('coins')}
+              onClick={() => triggerSfx('coins')}
               className="p-3.5 rounded-2xl bg-[#141b25] border border-white/5 hover:border-yellow-500/40 hover:bg-yellow-500/10 transition-all flex flex-col items-center gap-2 group cursor-pointer"
             >
               <div className="w-9 h-9 rounded-full bg-yellow-500/20 text-yellow-300 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -442,9 +524,43 @@ export const SoundboardView: React.FC = () => {
               </div>
               <span className="text-xs font-bold text-slate-200">Gold Loot</span>
             </button>
-          </div>
-        </div>
 
+            <button
+              onClick={() => triggerSfx('thunder')}
+              className="p-3.5 rounded-2xl bg-[#141b25] border border-white/5 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all flex flex-col items-center gap-2 group cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Zap size={16} />
+              </div>
+              <span className="text-xs font-bold text-slate-200">Thunder Clap</span>
+            </button>
+          </div>
+
+          {customSfx.length > 0 && (
+            <div className="flex flex-wrap gap-2.5 pt-2">
+              {customSfx.map(s => (
+                <div
+                  key={s.id}
+                  className="flex items-center gap-1.5 bg-[#141b25] border border-white/10 rounded-xl px-3 py-2"
+                >
+                  <button
+                    onClick={() => triggerCustomSfx(s.id)}
+                    className="flex items-center gap-2 text-xs font-semibold text-slate-200 hover:text-amber-400"
+                  >
+                    <Play size={10} className="text-amber-400 fill-amber-400" />
+                    <span className="truncate max-w-[150px]">{s.name}</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteTrack(s.id)}
+                    className="text-slate-600 hover:text-red-400 ml-1.5"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

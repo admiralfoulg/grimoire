@@ -1,108 +1,28 @@
-﻿import type { MapPin, MapZone, MapToken, MapLighting } from './storage';
-
-export interface ActiveRulerData {
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
-  distanceFt: number;
-  color?: string;
+﻿export interface ProjectionPayload {
+  type: 'MAP' | 'IMAGE' | 'CLEAR' | 'AUDIO';
+  title?: string;
+  imageUrl?: string;
+  subtitle?: string;
+  mapData?: any;
+  audioType?: 'crit' | 'fail' | 'sword' | 'magic' | 'coins' | 'thunder' | 'custom';
+  audioCustomId?: string;
 }
 
-export interface PlayerCombatantView {
-  id: string;
-  name: string;
-  kind: 'player' | 'monster' | 'npc';
-  conditions: string[];
-}
-
-export type ProjectionPayload = 
-  | { 
-      type: 'MAP'; 
-      mapId: string; 
-      imageUrl: string; 
-      name: string;
-      mapType: 'world' | 'tactical';
-      gridCols?: number;
-      gridRows?: number;
-      ambientLighting?: MapLighting;
-      activeRuler?: ActiveRulerData | null;
-      fogOfWar?: {
-        enabled: boolean;
-        dynamicVision?: boolean;
-        revealedCells: string[];
-      };
-      pins?: Omit<MapPin, 'isSecret'>[];
-      zones?: Omit<MapZone, 'isSecret'>[];
-      tokens?: Omit<MapToken, 'isSecret'>[];
-      combatTracker?: {
-        round: number;
-        currentTurnIndex: number;
-        combatants: PlayerCombatantView[];
-      } | null;
-    }
-  | { type: 'IMAGE'; title: string; imageUrl: string; subtitle?: string }
-  | { type: 'CLEAR' };
-
-const STORAGE_KEY = 'grimoire:player_projection';
-const CHANNEL_NAME = 'grimoire_player_display';
-
-class ProjectionChannelManager {
+class ProjectionManager {
   private channel: BroadcastChannel | null = null;
   private currentPayload: ProjectionPayload = { type: 'CLEAR' };
-  private listeners: Set<(payload: ProjectionPayload) => void> = new Set();
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          this.currentPayload = JSON.parse(saved);
-        }
-      } catch (e) {
-        console.warn('Could not read projection from storage', e);
-      }
-
-      if ('BroadcastChannel' in window) {
-        this.channel = new BroadcastChannel(CHANNEL_NAME);
-        this.channel.onmessage = (event) => {
-          if (event.data) {
-            this.currentPayload = event.data;
-            this.notify();
-          }
-        };
-      }
-
-      window.addEventListener('storage', (e) => {
-        if (e.key === STORAGE_KEY && e.newValue) {
-          try {
-            this.currentPayload = JSON.parse(e.newValue);
-            this.notify();
-          } catch (_) {}
-        }
-      });
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      this.channel = new BroadcastChannel('grimoire_projection_v1');
     }
-  }
-
-  private notify() {
-    this.listeners.forEach(fn => fn(this.currentPayload));
   }
 
   public project(payload: ProjectionPayload) {
     this.currentPayload = payload;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    } catch (err) {
-      console.warn("Storage quota exceeded or error storing projection:", err);
+    if (this.channel) {
+      this.channel.postMessage(payload);
     }
-    
-    try {
-      this.channel?.postMessage(payload);
-    } catch (err) {
-      console.warn("BroadcastChannel postMessage failed:", err);
-    }
-
-    this.notify();
   }
 
   public clear() {
@@ -113,11 +33,19 @@ class ProjectionChannelManager {
     return this.currentPayload;
   }
 
-  public subscribe(fn: (payload: ProjectionPayload) => void): () => void {
-    this.listeners.add(fn);
-    fn(this.currentPayload);
-    return () => this.listeners.delete(fn);
+  public subscribe(callback: (payload: ProjectionPayload) => void): () => void {
+    if (!this.channel) return () => {};
+
+    const handler = (e: MessageEvent<ProjectionPayload>) => {
+      this.currentPayload = e.data;
+      callback(e.data);
+    };
+
+    this.channel.addEventListener('message', handler);
+    return () => {
+      this.channel?.removeEventListener('message', handler);
+    };
   }
 }
 
-export const ProjectionService = new ProjectionChannelManager();
+export const ProjectionService = new ProjectionManager();
