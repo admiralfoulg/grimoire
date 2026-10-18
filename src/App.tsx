@@ -1,7 +1,5 @@
-﻿import React, { useEffect, useState, useMemo } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { useGrimoireStore } from './store/useGrimoireStore';
-import { ProjectionService } from './services/broadcast';
-import { PlayerDisplayWindow } from './components/PlayerDisplayWindow';
 import { EditorView } from './components/EditorView';
 import { MapView } from './components/MapView';
 import { GraphView } from './components/GraphView';
@@ -14,12 +12,9 @@ import { CommandPalette } from './components/CommandPalette';
 import { VaultSettingsModal } from './components/VaultSettingsModal';
 import { GeneratorModal } from './components/GeneratorModal';
 import { DiceRoller } from './components/DiceRoller';
+import { FileOrganizerTree } from './components/FileOrganizerTree';
 import { 
-  Folder as FolderIcon, 
   ChevronDown, 
-  ChevronRight, 
-  Search, 
-  FolderPlus, 
   Map as MapIcon, 
   Network, 
   Clock, 
@@ -29,48 +24,32 @@ import {
   Calendar, 
   Swords, 
   Eye, 
-  Plus, 
-  Trash2, 
   BookMarked,
   Volume2,
   Sparkles,
-  Cast,
-  Tv
+  Globe,
+  Plus,
+  Check
 } from 'lucide-react';
 
 export default function App() {
-  const isPlayerWindow = new URLSearchParams(window.location.search).get('player') === 'true';
-
-  if (isPlayerWindow) {
-    return <PlayerDisplayWindow />;
-  }
-
   const { 
     init, 
     currentWorld, 
-    cards, 
-    folders,
-    maps,
-    activeMapId,
+    worlds, 
     activeView, 
-    activeCardId, 
-    createCard, 
-    createFolder, 
-    deleteFolder, 
-    setActiveCard, 
-    setActiveView 
+    setActiveView,
+    createWorld,
+    selectWorld
   } = useGrimoireStore();
 
-  const [searchQuery, setSearchQuery] = useState('');
   const [isCommandOpen, setIsCommandOpen] = useState(false);
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
+  const [isCampaignDrawerOpen, setIsCampaignDrawerOpen] = useState(false);
+  const [newWorldName, setNewWorldName] = useState('');
+  const [isCreatingWorld, setIsCreatingWorld] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
-
-  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [newFolderCategory, setNewFolderCategory] = useState<'character' | 'location' | 'faction' | 'item' | 'lore'>('character');
 
   useEffect(() => {
     const updateTime = () => {
@@ -97,43 +76,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
-  const openPlayerWindow = () => {
-    window.open(`${window.location.origin}?player=true`, 'GrimoirePlayerWindow', 'width=1280,height=720');
-  };
-
-  const projectActiveMap = () => {
-    const activeMap = maps.find(m => m.id === activeMapId) || maps[0];
-    if (activeMap && activeMap.imageUrl) {
-      ProjectionService.project({
-        type: 'MAP',
-        mapId: activeMap.id,
-        imageUrl: activeMap.imageUrl,
-        name: activeMap.name
-      });
-    } else {
-      alert("No active map with a valid image is selected to project.");
-    }
-  };
-
-  const clearProjection = () => {
-    ProjectionService.clear();
-  };
-
-  const toggleFolder = (folderKey: string) => {
-    setCollapsedFolders(prev => ({ ...prev, [folderKey]: !prev[folderKey] }));
-  };
-
-  const filteredCards = useMemo(() => {
-    if (!searchQuery.trim()) return cards;
-    return cards.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [cards, searchQuery]);
-
-  const handleCreateFolderSubmit = (e: React.FormEvent) => {
+  const handleCreateWorldSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newFolderName.trim()) return;
-    createFolder(newFolderName.trim(), newFolderCategory);
-    setNewFolderName('');
-    setIsCreatingFolder(false);
+    if (!newWorldName.trim()) return;
+    createWorld(newWorldName.trim(), 'Fantasy');
+    setNewWorldName('');
+    setIsCreatingWorld(false);
   };
 
   if (activeView === 'reader') {
@@ -154,17 +102,25 @@ export default function App() {
       <GeneratorModal isOpen={isGeneratorOpen} onClose={() => setIsGeneratorOpen(false)} />
       <DiceRoller />
 
-      {/* Top VVD Master Bar */}
+      {/* Top Header */}
       <header className="h-10 px-3 flex items-center justify-between border-b border-white/5 bg-[#0d121b]/80 backdrop-blur-md z-30 shrink-0 text-xs">
         <div className="flex items-center gap-1.5">
-          <button 
+          <button
             onClick={() => setIsVaultOpen(true)}
-            className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#18212e] border border-white/10 hover:border-white/20 transition-colors text-slate-200 font-medium"
+            className="w-5 h-5 rounded-md bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/40 hover:border-amber-400 text-amber-300 flex items-center justify-center text-[10px] font-extrabold shadow-sm transition-all cursor-pointer group"
+            title="Campaign Vault: Upload, Import, Export, or Obsidian Sync"
           >
-            <span className="w-4 h-4 rounded bg-amber-500/25 text-amber-300 flex items-center justify-center text-[10px] font-bold">
-              {currentWorld?.name.charAt(0) || 'V'}
+            <span className="group-hover:scale-110 transition-transform">
+              {currentWorld?.name.charAt(0) || 'T'}
             </span>
-            <span>{currentWorld?.name || 'Voltawic'}</span>
+          </button>
+
+          <button 
+            onClick={() => setIsCampaignDrawerOpen(prev => !prev)}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#18212e] border border-white/10 hover:border-white/20 transition-colors text-slate-200 font-medium"
+            title="Switch Campaign / Realm"
+          >
+            <span>{currentWorld?.name || 'The First Realm'}</span>
             <ChevronDown size={11} className="text-slate-500" />
           </button>
 
@@ -244,58 +200,21 @@ export default function App() {
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold transition-colors"
             title="Instant DM Sparks, NPCs, Taverns & Oracles"
           >
-            <Sparkles size={12} className="text-amber-400" />
+            <Sparkles size={12} />
             <span>Sparks</span>
           </button>
 
-          {/* Player TV Window Controls */}
-          <div className="flex items-center gap-1 pl-1 ml-1 border-l border-white/10">
-            <button
-              onClick={openPlayerWindow}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 font-semibold transition-colors"
-              title="Open secondary player screen window (drag to TV/second monitor)"
-            >
-              <Tv size={12} />
-              <span>Player Screen</span>
-            </button>
-
-            <button
-              onClick={projectActiveMap}
-              className="p-1 rounded-lg hover:bg-white/5 text-slate-400 hover:text-amber-300 transition-colors"
-              title="Project active map to player screen"
-            >
-              <Cast size={13} />
-            </button>
-
-            <button
-              onClick={clearProjection}
-              className="text-[10px] text-slate-500 hover:text-red-400 px-1 py-0.5"
-              title="Blank the player screen"
-            >
-              Clear
-            </button>
-          </div>
-
           <button 
             onClick={() => setActiveView('reader')}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-amber-500/10 text-slate-400 hover:text-amber-300 border border-transparent hover:border-amber-500/30 transition-colors ml-1"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-amber-500/10 text-slate-400 hover:text-amber-300 border border-transparent hover:border-amber-500/30 transition-colors"
             title="Open Wiki Reader Mode"
           >
             <Eye size={12} />
             <span>Reader</span>
           </button>
-
-          <button 
-            onClick={() => createCard('New Character', 'character')}
-            className="text-slate-500 hover:text-slate-300 px-1 py-1"
-            title="Create Card"
-          >
-            +
-          </button>
         </div>
 
         <div className="flex items-center gap-3 text-slate-400 text-[11px]">
-          <button className="hover:text-slate-200 transition-colors">Feedback</button>
           <span className="text-slate-300 font-mono flex items-center gap-1.5">
             <Clock size={11} className="opacity-60" /> {currentTime}
           </span>
@@ -303,11 +222,21 @@ export default function App() {
       </header>
 
       {/* Main Workstation Layout */}
-      <div className="flex-1 flex overflow-hidden z-20">
-        <div className="w-10 bg-[#0d121a]/90 border-r border-white/5 flex flex-col justify-between items-center py-3 shrink-0">
-          <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 text-[11px] font-bold">
-            ●
-          </div>
+      <div className="flex-1 flex overflow-hidden z-20 relative">
+
+        {/* Far-Left Vertical Rail */}
+        <div className="w-10 bg-[#0d121a]/90 border-r border-white/5 flex flex-col justify-between items-center py-3 shrink-0 z-30">
+          <button 
+            onClick={() => setIsCampaignDrawerOpen(prev => !prev)}
+            className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-all cursor-pointer group ${
+              isCampaignDrawerOpen 
+                ? 'bg-amber-500/30 border-amber-500 shadow-md shadow-amber-500/20' 
+                : 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500/60'
+            }`}
+            title="All Campaigns & Realms"
+          >
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-400 group-hover:scale-125 transition-transform shadow-sm shadow-amber-400" />
+          </button>
 
           <div className="flex flex-col items-center gap-3 text-slate-500">
             <button onClick={() => setActiveView('editor')} className={`hover:text-slate-300 ${activeView === 'editor' ? 'text-amber-400' : ''}`} title="Codex Documents">
@@ -338,296 +267,120 @@ export default function App() {
           </div>
         </div>
 
-        {/* Tree Explorer Drawer */}
-        <aside className="w-64 bg-[#10151f]/85 backdrop-blur-xl border-r border-white/5 flex flex-col justify-between shrink-0">
-          <div className="flex flex-col overflow-y-auto">
-            <div className="p-3 border-b border-white/5 flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-2 bg-[#090d14]/90 border border-white/5 rounded-lg px-2.5 py-1.5 focus-within:border-white/20 transition-colors">
-                <Search size={13} className="text-slate-500 shrink-0" />
-                <input
-                  type="text"
-                  placeholder="Search document..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="bg-transparent text-xs text-slate-200 outline-none w-full placeholder:text-slate-600 font-sans"
-                />
+        {/* Campaign Realms Drawer */}
+        {isCampaignDrawerOpen && (
+          <div className="w-64 bg-[#0e141f] border-r border-white/10 flex flex-col justify-between shrink-0 z-20 shadow-2xl">
+            <div className="flex flex-col overflow-y-auto">
+              <div className="p-3 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Globe size={14} className="text-amber-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-200">Campaign Realms</span>
+                </div>
+                <button
+                  onClick={() => setIsCreatingWorld(true)}
+                  className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white"
+                  title="Create New Campaign"
+                >
+                  <Plus size={14} />
+                </button>
               </div>
-              <button 
-                onClick={() => setIsCreatingFolder(true)} 
-                className="text-slate-500 hover:text-amber-400 p-1"
-                title="Create New Folder"
-              >
-                <FolderPlus size={14} />
-              </button>
-              <button 
-                onClick={() => createCard('New Character', 'character')} 
-                className="text-slate-500 hover:text-slate-300 p-1"
-                title="Create Card"
-              >
-                <Plus size={14} />
-              </button>
+
+              {isCreatingWorld && (
+                <form onSubmit={handleCreateWorldSubmit} className="p-3 bg-white/5 border-b border-white/5 flex flex-col gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">New Campaign Name</span>
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="e.g. Curse of Strahd..."
+                    value={newWorldName}
+                    onChange={e => setNewWorldName(e.target.value)}
+                    className="bg-black/50 border border-white/10 rounded px-2.5 py-1 text-xs text-white outline-none focus:border-amber-500/50"
+                  />
+                  <div className="flex justify-end gap-1.5 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreatingWorld(false)}
+                      className="text-[10px] text-slate-400 hover:text-white px-2 py-1"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="text-[10px] bg-amber-500 text-black font-semibold px-2 py-1 rounded hover:bg-amber-400"
+                    >
+                      Create Realm
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <div className="p-2 flex flex-col gap-1 text-xs">
+                {worlds.map(w => {
+                  const isActive = currentWorld?.id === w.id;
+                  return (
+                    <button
+                      key={w.id}
+                      onClick={() => {
+                        selectWorld(w.id);
+                        setIsCampaignDrawerOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2.5 rounded-xl flex items-center justify-between transition-all group ${
+                        isActive
+                          ? 'bg-[#18212e] text-amber-300 font-bold border border-amber-500/40 shadow-md'
+                          : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className={`w-5 h-5 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                          isActive ? 'bg-amber-500 text-black' : 'bg-white/5 text-slate-500'
+                        }`}>
+                          {w.name.charAt(0)}
+                        </span>
+                        <div className="truncate">
+                          <div className="truncate">{w.name}</div>
+                          <div className="text-[9px] text-slate-500 font-normal">Campaign</div>
+                        </div>
+                      </div>
+                      {isActive && <Check size={13} className="text-amber-400 shrink-0 ml-1" />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {isCreatingFolder && (
-              <form onSubmit={handleCreateFolderSubmit} className="p-3 bg-white/5 border-b border-white/5 flex flex-col gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">New Folder</span>
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="Folder name..."
-                  value={newFolderName}
-                  onChange={e => setNewFolderName(e.target.value)}
-                  className="bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none"
-                />
-                <select
-                  value={newFolderCategory}
-                  onChange={e => setNewFolderCategory(e.target.value as any)}
-                  className="bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-slate-300 outline-none"
-                >
-                  <option value="character">Characters</option>
-                  <option value="location">Locations</option>
-                  <option value="faction">Factions</option>
-                  <option value="item">Items</option>
-                  <option value="lore">Lore</option>
-                </select>
-                <div className="flex justify-end gap-1.5 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsCreatingFolder(false)}
-                    className="text-[10px] text-slate-400 hover:text-white px-2 py-1"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="text-[10px] bg-amber-500 text-black font-semibold px-2 py-1 rounded"
-                  >
-                    Create
-                  </button>
-                </div>
-              </form>
-            )}
-
-            <div className="p-2 flex flex-col gap-1 text-xs">
-              {/* Characters Section */}
-              <div className="flex flex-col">
-                <div 
-                  onClick={() => toggleFolder('root_character')}
-                  className="flex items-center justify-between px-2 py-1.5 text-slate-300 hover:text-white cursor-pointer font-medium"
-                >
-                  <div className="flex items-center gap-2">
-                    <FolderIcon size={14} className="text-slate-400" />
-                    <span>Characters</span>
-                  </div>
-                  {collapsedFolders['root_character'] ? <ChevronRight size={13} className="text-slate-500" /> : <ChevronDown size={13} className="text-slate-500" />}
-                </div>
-
-                {!collapsedFolders['root_character'] && (
-                  <div className="ml-2 pl-2 flex flex-col gap-1 border-l border-white/5 mt-0.5">
-                    {folders.filter(f => f.category === 'character').map(folder => {
-                      const isCollapsed = Boolean(collapsedFolders[folder.id]);
-                      const folderCards = filteredCards.filter(c => c.folderId === folder.id);
-
-                      return (
-                        <div key={folder.id} className="flex flex-col">
-                          <div 
-                            className="flex items-center justify-between px-2 py-1 text-slate-400 hover:text-slate-200 cursor-pointer group"
-                            onClick={() => toggleFolder(folder.id)}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                              <FolderIcon size={13} className="text-amber-500/70" />
-                              <span className="font-medium text-slate-300">{folder.name}</span>
-                            </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteFolder(folder.id);
-                              }}
-                              className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
-                              title="Delete Folder"
-                            >
-                              <Trash2 size={11} />
-                            </button>
-                          </div>
-
-                          {!isCollapsed && (
-                            <div className="ml-3 pl-2 flex flex-col gap-0.5 border-l border-white/5 mt-0.5">
-                              {folderCards.map(c => {
-                                const isActive = activeCardId === c.id && activeView === 'editor';
-                                return (
-                                  <button
-                                    key={c.id}
-                                    onClick={() => {
-                                      setActiveCard(c.id);
-                                      setActiveView('editor');
-                                    }}
-                                    className={`w-full text-left px-2 py-1.5 rounded-lg flex items-center gap-2 text-xs transition-all ${
-                                      isActive
-                                        ? 'bg-[#18212e] text-slate-100 font-medium border border-white/10'
-                                        : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-                                    }`}
-                                  >
-                                    <span className="w-4 h-4 rounded bg-amber-500/20 text-amber-300 flex items-center justify-center text-[9px]">👤</span>
-                                    <span className="truncate flex-1">{c.name}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    {filteredCards.filter(c => c.type === 'character' && !c.folderId).map(c => {
-                      const isActive = activeCardId === c.id && activeView === 'editor';
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => {
-                            setActiveCard(c.id);
-                            setActiveView('editor');
-                          }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-xl flex items-center gap-2 text-xs transition-all ${
-                            isActive
-                              ? 'bg-[#18212e] text-slate-100 font-medium shadow-md border border-white/10'
-                              : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border border-transparent'
-                          }`}
-                        >
-                          <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] shrink-0 ${
-                            isActive ? 'bg-amber-500/25 text-amber-300 border border-amber-500/35' : 'bg-white/5 text-slate-500'
-                          }`}>
-                            👤
-                          </span>
-                          <span className="truncate flex-1">{c.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Locations Section */}
-              <div className="flex flex-col">
-                <div 
-                  onClick={() => toggleFolder('root_location')}
-                  className="flex items-center justify-between px-2 py-1.5 text-slate-400 hover:text-slate-200 cursor-pointer font-medium"
-                >
-                  <div className="flex items-center gap-2">
-                    <FolderIcon size={14} className="text-slate-500" />
-                    <span>Locations</span>
-                  </div>
-                  {collapsedFolders['root_location'] ? <ChevronRight size={13} className="text-slate-500" /> : <ChevronDown size={13} className="text-slate-500" />}
-                </div>
-
-                {!collapsedFolders['root_location'] && (
-                  <div className="ml-2 pl-2 flex flex-col gap-1 border-l border-white/5 mt-0.5">
-                    {filteredCards.filter(c => c.type === 'location').map(c => {
-                      const isActive = activeCardId === c.id && activeView === 'editor';
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => {
-                            setActiveCard(c.id);
-                            setActiveView('editor');
-                          }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-xl flex items-center gap-2 text-xs transition-all ${
-                            isActive
-                              ? 'bg-[#18212e] text-slate-100 font-medium border border-white/10'
-                              : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-                          }`}
-                        >
-                          <span className="w-5 h-5 rounded-md bg-blue-500/20 text-blue-300 flex items-center justify-center text-[10px]">📍</span>
-                          <span className="truncate flex-1">{c.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Nexus Graph Entry */}
-              <div 
-                onClick={() => setActiveView('graph')} 
-                className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
-                  activeView === 'graph' ? 'bg-[#1e2736] text-purple-300 font-medium' : 'text-slate-400 hover:text-slate-200'
-                }`}
+            <div className="p-3 border-t border-white/5">
+              <button
+                onClick={() => {
+                  setIsCampaignDrawerOpen(false);
+                  setIsVaultOpen(true);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold border border-white/10 transition-colors"
               >
-                <div className="flex items-center gap-2">
-                  <Network size={14} className="text-purple-400" />
-                  <span>Nexus Graph</span>
-                </div>
-                <ChevronRight size={13} className="text-slate-500" />
-              </div>
-
-              {/* Timeline Entry */}
-              <div 
-                onClick={() => setActiveView('timeline')} 
-                className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
-                  activeView === 'timeline' ? 'bg-[#1e2736] text-white font-medium' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Calendar size={14} className="text-slate-500" />
-                  <span>Timeline & Eras</span>
-                </div>
-                <ChevronRight size={13} className="text-slate-500" />
-              </div>
-
-              {/* Combat Entry */}
-              <div 
-                onClick={() => setActiveView('combat')} 
-                className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
-                  activeView === 'combat' ? 'bg-[#1e2736] text-red-300 font-medium' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Swords size={14} className="text-red-400" />
-                  <span>Combat & Tracker</span>
-                </div>
-                <ChevronRight size={13} className="text-slate-500" />
-              </div>
-
-              {/* Sessions Entry */}
-              <div 
-                onClick={() => setActiveView('sessions')} 
-                className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
-                  activeView === 'sessions' ? 'bg-[#1e2736] text-amber-300 font-medium' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <BookMarked size={14} className="text-amber-400" />
-                  <span>Live Sessions</span>
-                </div>
-                <ChevronRight size={13} className="text-slate-500" />
-              </div>
-
-              {/* Audio Soundboard Entry */}
-              <div 
-                onClick={() => setActiveView('soundboard')} 
-                className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
-                  activeView === 'soundboard' ? 'bg-[#1e2736] text-cyan-300 font-medium' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Volume2 size={14} className="text-cyan-400" />
-                  <span>Audio & Ambience</span>
-                </div>
-                <ChevronRight size={13} className="text-slate-500" />
-              </div>
-
+                <span>Campaign Backup & Vault</span>
+              </button>
             </div>
           </div>
+        )}
 
-          <div className="p-3 border-t border-white/5 flex items-center justify-between text-slate-400 text-xs">
+        {/* Tree Explorer Drawer */}
+        <aside className="w-64 bg-[#10151f]/85 backdrop-blur-xl border-r border-white/5 flex flex-col justify-between shrink-0">
+          <FileOrganizerTree />
+
+          <div className="p-2.5 border-t border-white/5 flex items-center justify-between text-slate-400 text-xs">
             <div className="flex items-center gap-2">
               <span className="text-purple-400 font-bold">👤</span>
               <span className="text-slate-300 font-medium">trey 7</span>
             </div>
-            <ChevronRight size={13} className="text-slate-500" />
+            <button 
+              onClick={() => setIsVaultOpen(true)}
+              className="text-[10px] text-slate-500 hover:text-slate-300 underline"
+            >
+              Vault
+            </button>
           </div>
         </aside>
 
+        {/* Main Central Workspace */}
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-transparent relative">
           {activeView === 'editor' && <EditorView />}
           {activeView === 'map' && <MapView />}

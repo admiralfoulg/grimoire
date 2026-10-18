@@ -1,337 +1,271 @@
 ﻿import { get, set, del, keys } from 'idb-keyval';
 
-export interface CustomTrack {
+export interface CustomAudioTrack {
   id: string;
   name: string;
+  blob: Blob;
   type: 'ambience' | 'sfx';
-  dataUrl?: string;
+  createdAt: number;
 }
 
-const PREFIX_AUDIO = 'grimoire:audio:';
+export interface SoundboardPreset {
+  id: string;
+  name: string;
+  activeChannelIds: string[];
+  volumes: Record<string, number>;
+  createdAt: number;
+}
 
-class SoundboardManager {
+const PREFIX_TRACK = 'grimoire:audio:track:';
+const PREFIX_PRESET = 'grimoire:audio:preset:';
+
+class SoundboardEngine {
   private ctx: AudioContext | null = null;
-  private activeLoops: Map<string, { stop: () => void; setVolume: (v: number) => void }> = new Map();
-  private decodedBufferCache: Map<string, AudioBuffer> = new Map();
+  private audioElements: Map<string, HTMLAudioElement> = new Map();
+  private customSources: Map<string, { source: AudioBufferSourceNode; gain: GainNode }> = new Map();
 
-  private getContext(): AudioContext {
+  private getAudioContext(): AudioContext {
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       this.ctx = new AudioCtx();
     }
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      void this.ctx.resume();
     }
     return this.ctx;
   }
 
-  // --- IndexedDB Custom Track Storage ---
-  public async saveCustomTrack(file: File, type: 'ambience' | 'sfx'): Promise<CustomTrack> {
-    const id = `custom-${crypto.randomUUID()}`;
-    const arrayBuffer = await file.arrayBuffer();
-    
-    await set(`${PREFIX_AUDIO}${id}`, {
+  // --- Track CRUD ---
+  async saveTrack(file: File, type: 'ambience' | 'sfx'): Promise<CustomAudioTrack> {
+    const id = `track-${crypto.randomUUID()}`;
+    const track: CustomAudioTrack = {
       id,
-      name: file.name.replace(/\.[^/.]+$/, ""),
+      name: file.name.replace(/\.[^/.]+$/, ''),
+      blob: file,
       type,
-      buffer: arrayBuffer
-    });
-
-    const ctx = this.getContext();
-    try {
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-      this.decodedBufferCache.set(id, audioBuffer);
-    } catch (e) {
-      console.warn("Could not pre-decode buffer:", e);
-    }
-
-    return { id, name: file.name.replace(/\.[^/.]+$/, ""), type };
+      createdAt: Date.now()
+    };
+    await set(`${PREFIX_TRACK}${id}`, track);
+    return track;
   }
 
-  public async listCustomTracks(): Promise<{ id: string; name: string; type: 'ambience' | 'sfx' }[]> {
+  async listTracks(): Promise<CustomAudioTrack[]> {
     const allKeys = await keys();
-    const audioKeys = allKeys.filter(k => String(k).startsWith(PREFIX_AUDIO));
-    const list = [];
-    for (const k of audioKeys) {
-      const item = await get<any>(k);
-      if (item) {
-        list.push({ id: item.id, name: item.name, type: item.type });
-      }
+    const trackKeys = allKeys.filter(k => String(k).startsWith(PREFIX_TRACK));
+    const tracks: CustomAudioTrack[] = [];
+    for (const k of trackKeys) {
+      const t = await get<CustomAudioTrack>(k);
+      if (t) tracks.push(t);
     }
-    return list;
+    return tracks.sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  public async deleteCustomTrack(id: string) {
-    if (this.activeLoops.has(id)) {
-      this.activeLoops.get(id)!.stop();
-      this.activeLoops.delete(id);
+  async deleteTrack(id: string): Promise<void> {
+    this.stopChannel(id);
+    await del(`${PREFIX_TRACK}${id}`);
+  }
+
+  // --- Preset CRUD ---
+  async savePreset(name: string, activeChannelIds: string[], volumes: Record<string, number>): Promise<SoundboardPreset> {
+    const id = `preset-${crypto.randomUUID()}`;
+    const preset: SoundboardPreset = {
+      id,
+      name,
+      activeChannelIds,
+      volumes,
+      createdAt: Date.now()
+    };
+    await set(`${PREFIX_PRESET}${id}`, preset);
+    return preset;
+  }
+
+  async listPresets(): Promise<SoundboardPreset[]> {
+    const allKeys = await keys();
+    const presetKeys = allKeys.filter(k => String(k).startsWith(PREFIX_PRESET));
+    const presets: SoundboardPreset[] = [];
+    for (const k of presetKeys) {
+      const p = await get<SoundboardPreset>(k);
+      if (p) presets.push(p);
     }
-    this.decodedBufferCache.delete(id);
-    await del(`${PREFIX_AUDIO}${id}`);
+    return presets.sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  private async getOrLoadBuffer(id: string): Promise<AudioBuffer | null> {
-    if (this.decodedBufferCache.has(id)) {
-      return this.decodedBufferCache.get(id)!;
+  async deletePreset(id: string): Promise<void> {
+    await del(`${PREFIX_PRESET}${id}`);
+  }
+
+  // --- Playback & Volume ---
+  isPlaying(channelId: string): boolean {
+    const el = this.audioElements.get(channelId);
+    if (el) return !el.paused;
+    return this.customSources.has(channelId);
+  }
+
+  setVolume(channelId: string, volume: number) {
+    const safeVol = Math.max(0, Math.min(1, volume));
+    const el = this.audioElements.get(channelId);
+    if (el) {
+      el.volume = safeVol;
     }
-    const item = await get<any>(`${PREFIX_AUDIO}${id}`);
-    if (!item || !item.buffer) return null;
-
-    const ctx = this.getContext();
-    const audioBuffer = await ctx.decodeAudioData(item.buffer.slice(0));
-    this.decodedBufferCache.set(id, audioBuffer);
-    return audioBuffer;
+    const custom = this.customSources.get(channelId);
+    if (custom) {
+      custom.gain.gain.value = safeVol;
+    }
   }
 
-  // --- Custom Audio Playback ---
-  public async playCustomSfx(id: string, volume: number = 0.8) {
-    const buffer = await this.getOrLoadBuffer(id);
-    if (!buffer) return;
+  stopChannel(channelId: string) {
+    const el = this.audioElements.get(channelId);
+    if (el) {
+      el.pause();
+      el.currentTime = 0;
+      this.audioElements.delete(channelId);
+    }
 
-    const ctx = this.getContext();
-    const source = ctx.createBufferSource();
-    const gain = ctx.createGain();
-
-    source.buffer = buffer;
-    gain.gain.setValueAtTime(volume, ctx.currentTime);
-
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    source.start(0);
+    const custom = this.customSources.get(channelId);
+    if (custom) {
+      try {
+        custom.source.stop();
+      } catch {}
+      this.customSources.delete(channelId);
+    }
   }
 
-  public async toggleCustomAmbience(id: string, volume: number = 0.5): Promise<boolean> {
-    const ctx = this.getContext();
+  stopAll() {
+    this.audioElements.forEach((el) => {
+      el.pause();
+      el.currentTime = 0;
+    });
+    this.audioElements.clear();
 
-    if (this.activeLoops.has(id)) {
-      this.activeLoops.get(id)!.stop();
-      this.activeLoops.delete(id);
+    this.customSources.forEach(({ source }) => {
+      try {
+        source.stop();
+      } catch {}
+    });
+    this.customSources.clear();
+  }
+
+  // Clean Native HTML5 Audio Looper (No synthetic buzzing fallback)
+  async playStaticOrUrlAmbience(channelId: string, url: string, volume: number = 0.5): Promise<boolean> {
+    this.stopChannel(channelId);
+
+    try {
+      const audio = new Audio(url);
+      audio.loop = true;
+      audio.volume = Math.max(0, Math.min(1, volume));
+
+      await audio.play();
+      this.audioElements.set(channelId, audio);
+      return true;
+    } catch (err) {
+      console.error(`Failed to play ${url}:`, err);
+      return false;
+    }
+  }
+
+  async toggleCustomAmbience(trackId: string, volume: number = 0.5): Promise<boolean> {
+    if (this.isPlaying(trackId)) {
+      this.stopChannel(trackId);
       return false;
     }
 
-    const buffer = await this.getOrLoadBuffer(id);
-    if (!buffer) return false;
+    const track = await get<CustomAudioTrack>(`${PREFIX_TRACK}${trackId}`);
+    if (!track) return false;
+
+    const ctx = this.getAudioContext();
+    const arrayBuffer = await track.blob.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
 
     const source = ctx.createBufferSource();
-    const gain = ctx.createGain();
-
-    source.buffer = buffer;
+    source.buffer = audioBuffer;
     source.loop = true;
-    gain.gain.setValueAtTime(volume, ctx.currentTime);
+
+    const gain = ctx.createGain();
+    gain.gain.value = Math.max(0, Math.min(1, volume));
 
     source.connect(gain);
     gain.connect(ctx.destination);
+
     source.start(0);
-
-    this.activeLoops.set(id, {
-      stop: () => {
-        try { source.stop(); } catch (_) {}
-      },
-      setVolume: (v: number) => {
-        gain.gain.setValueAtTime(v, ctx.currentTime);
-      }
-    });
-
+    this.customSources.set(trackId, { source, gain });
     return true;
   }
 
-  // --- Built-in Sounds & Fireplace ---
-  public playSfx(type: 'crit' | 'fail' | 'sword' | 'magic' | 'coins') {
-    const ctx = this.getContext();
+  async playCustomSfx(trackId: string) {
+    const track = await get<CustomAudioTrack>(`${PREFIX_TRACK}${trackId}`);
+    if (!track) return;
+
+    const ctx = this.getAudioContext();
+    const arrayBuffer = await track.blob.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    source.start(0);
+  }
+
+  playProceduralSfx(type: 'crit' | 'fail' | 'sword' | 'magic' | 'coins' | 'thunder') {
+    const ctx = this.getAudioContext();
     const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
 
     if (type === 'crit') {
-      [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
-        gain.gain.setValueAtTime(0, now + idx * 0.08);
-        gain.gain.linearRampToValueAtTime(0.2, now + idx * 0.08 + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.4);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + idx * 0.08);
-        osc.stop(now + idx * 0.08 + 0.45);
-      });
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.1);
+      osc.frequency.setValueAtTime(783.99, now + 0.2);
+      osc.frequency.setValueAtTime(1046.50, now + 0.3);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+      osc.start(now);
+      osc.stop(now + 0.8);
     } else if (type === 'fail') {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
       osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(180, now);
-      osc.frequency.exponentialRampToValueAtTime(60, now + 0.5);
-      gain.gain.setValueAtTime(0.18, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.linearRampToValueAtTime(80, now + 0.5);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
       osc.start(now);
-      osc.stop(now + 0.52);
+      osc.stop(now + 0.55);
     } else if (type === 'sword') {
-      const bufferSize = ctx.sampleRate * 0.2;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.03));
-      }
-      const noise = ctx.createBufferSource();
-      noise.buffer = buffer;
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(3200, now);
-      filter.Q.setValueAtTime(10, now);
-      noise.connect(filter);
-      filter.connect(ctx.destination);
-      noise.start(now);
-    } else if (type === 'magic') {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, now);
-      osc.frequency.exponentialRampToValueAtTime(1760, now + 0.4);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(800, now);
+      osc.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
       osc.start(now);
-      osc.stop(now + 0.65);
-    } else if (type === 'coins') {
-      [2400, 3100, 2750].forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.06);
-        gain.gain.setValueAtTime(0.15, now + idx * 0.06);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.15);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + idx * 0.06);
-        osc.stop(now + idx * 0.06 + 0.18);
-      });
-    }
-  }
-
-  public async toggleAmbience(id: string, type: 'rain' | 'fire' | 'crypt', volume: number = 0.5): Promise<boolean> {
-    if (this.activeLoops.has(id)) {
-      this.activeLoops.get(id)!.stop();
-      this.activeLoops.delete(id);
-      return false;
-    }
-
-    if (type === 'fire') {
-      try {
-        const audio = new Audio('/audio/fireplace.mp3');
-        audio.loop = true;
-        audio.volume = Math.max(0, Math.min(1, volume));
-        await audio.play();
-
-        this.activeLoops.set(id, {
-          stop: () => {
-            audio.pause();
-            audio.currentTime = 0;
-          },
-          setVolume: (v: number) => {
-            audio.volume = Math.max(0, Math.min(1, v));
-          }
-        });
-        return true;
-      } catch (err) {
-        console.error("Failed to play /audio/fireplace.mp3 via HTML5 Audio:", err);
-        return false;
-      }
-    }
-
-    const ctx = this.getContext();
-    const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(volume, ctx.currentTime);
-    masterGain.connect(ctx.destination);
-
-    if (type === 'rain') {
-      const bufferSize = ctx.sampleRate * 2;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      let b0 = 0, b1 = 0, b2 = 0;
-      for (let i = 0; i < bufferSize; i++) {
-        const white = Math.random() * 2 - 1;
-        b0 = 0.99886 * b0 + white * 0.0555179;
-        b1 = 0.99332 * b1 + white * 0.0750759;
-        b2 = 0.96900 * b2 + white * 0.1538520;
-        data[i] = (b0 + b1 + b2) * 0.1;
-      }
-      const noiseSource = ctx.createBufferSource();
-      noiseSource.buffer = buffer;
-      noiseSource.loop = true;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(1000, ctx.currentTime);
-
-      noiseSource.connect(filter);
-      filter.connect(masterGain);
-      noiseSource.start();
-
-      this.activeLoops.set(id, {
-        stop: () => {
-          try { noiseSource.stop(); } catch (_) {}
-        },
-        setVolume: (v: number) => {
-          masterGain.gain.setValueAtTime(v, ctx.currentTime);
-        }
-      });
-      return true;
-    }
-
-    if (type === 'crypt') {
-      const osc = ctx.createOscillator();
+      osc.stop(now + 0.2);
+    } else if (type === 'magic') {
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(55, ctx.currentTime);
-
-      const osc2 = ctx.createOscillator();
-      osc2.type = 'sawtooth';
-      osc2.frequency.setValueAtTime(56.5, ctx.currentTime);
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(140, ctx.currentTime);
-
-      osc.connect(filter);
-      osc2.connect(filter);
-      filter.connect(masterGain);
-
-      osc.start();
-      osc2.start();
-
-      this.activeLoops.set(id, {
-        stop: () => {
-          try {
-            osc.stop();
-            osc2.stop();
-          } catch (_) {}
-        },
-        setVolume: (v: number) => {
-          masterGain.gain.setValueAtTime(v, ctx.currentTime);
-        }
-      });
-      return true;
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.4);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      osc.start(now);
+      osc.stop(now + 0.5);
+    } else if (type === 'coins') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1800, now);
+      osc.frequency.setValueAtTime(2400, now + 0.08);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else if (type === 'thunder') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(90, now);
+      osc.frequency.linearRampToValueAtTime(30, now + 0.8);
+      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+      osc.start(now);
+      osc.stop(now + 0.9);
     }
-
-    return false;
-  }
-
-  public setVolume(id: string, volume: number) {
-    const loop = this.activeLoops.get(id);
-    if (loop) {
-      loop.setVolume(volume);
-    }
-  }
-
-  public isPlaying(id: string): boolean {
-    return this.activeLoops.has(id);
-  }
-
-  public stopAll() {
-    this.activeLoops.forEach(loop => loop.stop());
-    this.activeLoops.clear();
   }
 }
 
-export const SoundboardService = new SoundboardManager();
+export const SoundboardService = new SoundboardEngine();
