@@ -157,7 +157,9 @@ export default function App() {
   // Recursive Folder Tree Node Renderer
   const renderFolderNode = (folder: Folder) => {
     const isCollapsed = collapsedFolders[folder.id] ?? false;
-    const childFolders = folders.filter(f => f.parentId === folder.id);
+    const childFolders = folders
+      .filter(f => f.parentId === folder.id)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     const childCards = cards.filter(c => c.folderId === folder.id && (
       !searchQuery.trim() || c.name.toLowerCase().includes(searchQuery.toLowerCase())
     ));
@@ -289,7 +291,20 @@ export default function App() {
     );
   };
 
-  const rootFolders = folders.filter(f => !f.parentId);
+  const toggleCollapseAll = () => {
+    const allAreCollapsed = folders.length > 0 && folders.every(f => collapsedFolders[f.id]);
+    if (allAreCollapsed) {
+      setCollapsedFolders({});
+    } else {
+      const next: Record<string, boolean> = {};
+      folders.forEach(f => { next[f.id] = true; });
+      setCollapsedFolders(next);
+    }
+  };
+
+  const rootFolders = folders
+    .filter(f => !f.parentId)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
   const unfiledCards = cards.filter(c => !c.folderId && (
     !searchQuery.trim() || c.name.toLowerCase().includes(searchQuery.toLowerCase())
   ));
@@ -642,6 +657,16 @@ export default function App() {
                   className="bg-transparent text-xs text-slate-200 outline-none w-full placeholder:text-slate-600 font-sans"
                 />
               </div>
+              <button
+                onClick={toggleCollapseAll}
+                className="text-slate-400 hover:text-amber-300 p-1 rounded bg-white/5 hover:bg-white/10 transition-colors"
+                title="Collapse / Expand All Folders"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m7 20 5-5 5 5"/>
+                  <path d="m7 4 5 5 5-5"/>
+                </svg>
+              </button>
               <button 
                 onClick={async () => {
                   await createFolder('New Folder', 'general');

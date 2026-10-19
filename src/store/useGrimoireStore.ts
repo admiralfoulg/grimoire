@@ -1,3 +1,10 @@
+
+
+
+
+
+
+
 ﻿import { create } from 'zustand';
 import { 
   StorageService, 
@@ -53,6 +60,7 @@ interface GrimoireState {
   createWorld: (name: string, genre: string) => Promise<World>;
   deleteWorld: (worldId: string) => Promise<void>;
   renameWorld: (worldId: string, newName: string) => Promise<void>;
+  applyFolderTreeTemplate: (targetWorldId?: string) => Promise<void>;
   
   createFolder: (name: string, category: Folder['category'], parentId?: string) => Promise<Folder>;
   deleteFolder: (id: string) => Promise<void>;
@@ -122,6 +130,106 @@ interface GrimoireState {
   togglePinCardInSession: (sessionId: string, cardId: string) => Promise<void>;
 
   advanceDay: (days?: number) => Promise<void>;
+}
+
+
+const CAMPAIGN_FOLDER_TEMPLATE = [
+  {
+    name: '00 Operations',
+    cat: 'general',
+    sub: [],
+    files: [
+      { name: 'Dashboard.md', content: ['# 🧭 Dashboard', '', 'Welcome to your campaign dashboard. Track overarching quests, party status, and key links here.'].join('\n') },
+      { name: 'Session Zero.md', content: ['# 🎲 Session Zero', '', '- **Safety Tools & Boundaries:**', '- **Tone & Setting:**', '- **Character Connections:**', '- **House Rules Consensus:**'].join('\n') },
+      { name: 'House Rules.md', content: ['# 📜 House Rules', '', 'Document homebrew mechanics, critical hit rules, and resting adjustments here.'].join('\n') }
+    ]
+  },
+  {
+    name: '01 Sessions',
+    cat: 'general',
+    sub: ['Prep', 'Logs'],
+    files: [
+      { name: 'Calendar.md', content: ['# 📅 In-Game Calendar', '', 'Track days, seasonal weather, moon cycles, and scheduled in-world events.'].join('\n') }
+    ]
+  },
+  {
+    name: '02 Atlas',
+    cat: 'location',
+    sub: ['Regions', 'Settlements', 'Points of Interest'],
+    files: []
+  },
+  {
+    name: '03 Dramatis Personae',
+    cat: 'character',
+    sub: ['Party', 'NPCs', 'Factions'],
+    files: []
+  },
+  {
+    name: '04 Lore & Rules',
+    cat: 'lore',
+    sub: ['Pantheon & Myth', 'Bestiary', 'Compendium'],
+    files: []
+  },
+  {
+    name: '99 Templates',
+    cat: 'general',
+    sub: [],
+    files: [
+      { name: 'T-Session.md', content: ['# 📝 Session {{Number}}: {{Title}}', '', '**Date:** {{Date}}', '**In-Game Day:** {{Day}}', '', '## Objectives', '', '## Recap', '', '## Secrets & Clues'].join('\n') },
+      { name: 'T-Location.md', content: ['# 📍 {{Location Name}}', '', '**Region:** ', '**Type:** ', '', '## Overview', '', '## Points of Interest', '', '## Notable NPCs'].join('\n') },
+      { name: 'T-NPC.md', content: ['# 👤 {{NPC Name}}', '', '**Faction:** ', '**Role:** ', '**Disposition:** ', '', '## Appearance', '', '## Motives & Secrets'].join('\n') },
+      { name: 'T-Faction.md', content: ['# 🛡️ {{Faction Name}}', '', '**Leader:** ', '**Headquarters:** ', '', '## Goals', '', '## Resources & Territory'].join('\n') }
+    ]
+  },
+  {
+    name: '_assets',
+    cat: 'general',
+    sub: [],
+    files: []
+  }
+];
+
+async function seedCampaignTemplate(worldId: string) {
+  for (const f of CAMPAIGN_FOLDER_TEMPLATE) {
+    const parentFolderId = crypto.randomUUID();
+    await StorageService.saveFolder({
+      id: parentFolderId,
+      worldId,
+      name: f.name,
+      category: f.cat as any,
+      createdAt: Date.now()
+    });
+
+    if (f.sub && f.sub.length > 0) {
+      for (const subName of f.sub) {
+        await StorageService.saveFolder({
+          id: crypto.randomUUID(),
+          worldId,
+          name: subName,
+          category: f.cat as any,
+          parentId: parentFolderId,
+          createdAt: Date.now()
+        });
+      }
+    }
+
+    if (f.files && f.files.length > 0) {
+      for (const file of f.files) {
+        await StorageService.saveCard({
+          id: crypto.randomUUID(),
+          worldId,
+          folderId: parentFolderId,
+          name: file.name,
+          type: 'lore',
+          aliases: [],
+          content: file.content,
+          tags: [f.name.toLowerCase()],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        } as any);
+      }
+    }
+  }
 }
 
 export const useGrimoireStore = create<GrimoireState>((set, get) => ({
@@ -260,8 +368,18 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   selectWorld: async (worldId) => {
     const world = await StorageService.getWorld(worldId);
     if (!world) return;
-    const cards = await StorageService.listCardsByWorld(world.id);
-    const folders = await StorageService.listFoldersByWorld(world.id);
+
+    let cards = await StorageService.listCardsByWorld(world.id);
+    let folders = await StorageService.listFoldersByWorld(world.id);
+
+    // Auto-seed template if campaign doesn't have folders yet
+    if (folders.length === 0) {
+      console.log('[Grimoire] Auto-seeding default folder template for world:', world.id);
+      await seedCampaignTemplate(world.id);
+      cards = await StorageService.listCardsByWorld(world.id);
+      folders = await StorageService.listFoldersByWorld(world.id);
+    }
+
     const maps = await StorageService.listMapsByWorld(world.id);
     const savedTokens = await StorageService.listSavedTokensByWorld(world.id);
     const relationships = await StorageService.listRelationshipsByWorld(world.id);
@@ -285,10 +403,11 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       activeSessionId: sessions[0]?.id || null,
       activeCardId: cards[0]?.id || null,
       activeMapId: maps[0]?.id || null,
-      selectedTokenId: null,
-      activeView: 'editor'
+      selectedTokenId: null
     });
   },
+
+  
 
     
                     
@@ -310,7 +429,77 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     
 
   
-    renameWorld: async (worldId, newName) => {
+      applyFolderTreeTemplate: async (targetWorldId?: string) => {
+    const worldId = targetWorldId || get().currentWorld?.id;
+    if (!worldId) return;
+
+    console.log('[Grimoire] Applying folder tree template to world:', worldId);
+
+    const generatedFolders: any[] = [];
+    const generatedCards: any[] = [];
+
+    FOLDER_TREE_TEMPLATE.forEach((group) => {
+      const rootFolderId = crypto.randomUUID();
+      generatedFolders.push({
+        id: rootFolderId,
+        name: group.name,
+        worldId,
+        parentId: null,
+        createdAt: Date.now()
+      });
+
+      // Subfolders
+      group.subfolders.forEach((subName) => {
+        generatedFolders.push({
+          id: crypto.randomUUID(),
+          name: subName,
+          worldId,
+          parentId: rootFolderId,
+          createdAt: Date.now()
+        });
+      });
+
+      // Files (cards) inside root folder
+      group.files.forEach((file) => {
+        generatedCards.push({
+          id: crypto.randomUUID(),
+          title: file.name,
+          name: file.name,
+          worldId,
+          folderId: rootFolderId,
+          content: file.content,
+          type: 'document',
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+      });
+    });
+
+    // Write to grimoire_workstation_db
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.open('grimoire_workstation_db');
+      req.onsuccess = (e: any) => {
+        const db = e.target.result;
+        const tx = db.transaction(['folders', 'cards'], 'readwrite');
+        const folderStore = tx.objectStore('folders');
+        const cardStore = tx.objectStore('cards');
+
+        generatedFolders.forEach(f => folderStore.put(f));
+        generatedCards.forEach(c => cardStore.put(c));
+
+        tx.oncomplete = () => {
+          console.log('[Grimoire] Template folders and files saved to DB');
+          resolve();
+        };
+        tx.onerror = () => resolve();
+      };
+      req.onerror = () => resolve();
+    });
+
+    const { loadWorldData } = get();
+    await loadWorldData(worldId);
+  },
+  renameWorld: async (worldId, newName) => {
     const trimmed = newName.trim();
     if (!trimmed) return;
     console.log('[Grimoire] Renaming world in grimoire_workstation_db:', worldId, 'to:', trimmed);
@@ -439,84 +628,42 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       await loadWorldData(nextWorld.id);
     }
   },
-  createWorld: async (name, genre) => {
-    const newWorld: World = {
+  createWorld: async (name, genre = 'Fantasy', description = '') => {
+    const newWorld = {
       id: crypto.randomUUID(),
-      name,
-      description: '',
+      name: name.trim() || 'New Realm',
       genre,
+      description,
       createdAt: Date.now()
     };
+
     await StorageService.saveWorld(newWorld);
+    await seedCampaignTemplate(newWorld.id);
 
-    // Seed Obsidian Default Template Structure for new world
-    const foldersConfig = [
-      { name: '00 Operations', cat: 'general', files: ['Dashboard', 'Session Zero', 'House Rules'] },
-      { name: '01 Sessions', cat: 'general', sub: ['Prep', 'Logs'], files: ['Calendar'] },
-      { name: '02 Atlas', cat: 'location', sub: ['Regions', 'Settlements', 'Points of Interest'] },
-      { name: '03 Dramatis Personae', cat: 'character', sub: ['Party', 'NPCs', 'Factions'] },
-      { name: '04 Lore & Rules', cat: 'lore', sub: ['Pantheon & Myth', 'Bestiary', 'Compendium'] },
-      { name: '99 Templates', cat: 'general', files: ['T-Session', 'T-Location', 'T-NPC', 'T-Faction'] }
-    ];
-
-    for (const f of foldersConfig) {
-      const parentFolder = await StorageService.saveFolder({
-        id: crypto.randomUUID(),
-        worldId: newWorld.id,
-        name: f.name,
-        category: f.cat as any
-      });
-
-      if (f.sub) {
-        for (const subName of f.sub) {
-          await StorageService.saveFolder({
-            id: crypto.randomUUID(),
-            worldId: newWorld.id,
-            name: subName,
-            category: f.cat as any,
-            parentId: parentFolder.id
-          });
-        }
-      }
-
-      if (f.files) {
-        for (const fileName of f.files) {
-          await StorageService.saveCard({
-            id: crypto.randomUUID(),
-            worldId: newWorld.id,
-            folderId: parentFolder.id,
-            name: fileName,
-            type: 'lore',
-            aliases: [],
-            content: `# ${fileName}\n\nWelcome to your ${fileName} note.`,
-            tags: [f.name.toLowerCase()]
-          });
-        }
-      }
-    }
-
-    const cards = await StorageService.listCardsByWorld(newWorld.id);
-    const folders = await StorageService.listFoldersByWorld(newWorld.id);
     const worlds = await StorageService.listWorlds();
+    set({ worlds });
+    await get().selectWorld(newWorld.id);
 
-    set({ 
-      worlds, 
-      currentWorld: newWorld, 
-      cards, 
-      folders, 
-      maps: [], 
-      savedTokens: [], 
-      relationships: [], 
-      events: [], 
-      combats: [], 
-      sessions: [], 
-      combatSounds: [], 
-      activeCardId: cards[0]?.id || null, 
-      activeMapId: null, 
-      selectedTokenId: null,
-      activeView: 'editor'
+    return newWorld as any;
+  },
+
+  
+
+  applyFolderTreeTemplate: async (targetWorldId) => {
+    const worldId = targetWorldId || get().currentWorld?.id;
+    if (!worldId) return;
+
+    console.log('[Grimoire] Seeding folder tree template for world:', worldId);
+    await seedCampaignTemplate(worldId);
+
+    const cards = await StorageService.listCardsByWorld(worldId);
+    const folders = await StorageService.listFoldersByWorld(worldId);
+
+    set({
+      cards,
+      folders,
+      activeCardId: cards[0]?.id || null
     });
-    return newWorld;
   },
 
   createFolder: async (name, category, parentId) => {
@@ -1364,3 +1511,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     });
   }
 }));
+
+if (typeof window !== "undefined") {
+  (window as any).useGrimoireStore = useGrimoireStore;
+}
