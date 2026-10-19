@@ -495,3 +495,7 @@ class DatabaseService {
 }
 
 export const StorageService = new DatabaseService();
+
+export async function deleteWorld(worldId: string): Promise<void> {
+  return StorageService.deleteWorld(worldId);
+}

@@ -51,9 +51,13 @@ interface GrimoireState {
   selectWorld: (worldId: string) => Promise<void>;
   loadWorldData: (worldId: string) => Promise<void>;
   createWorld: (name: string, genre: string) => Promise<World>;
+  deleteWorld: (worldId: string) => Promise<void>;
   
   createFolder: (name: string, category: Folder['category'], parentId?: string) => Promise<Folder>;
   deleteFolder: (id: string) => Promise<void>;
+  renameFolder: (id: string, newName: string) => Promise<void>;
+  moveFolderToFolder: (folderId: string, parentId?: string) => Promise<void>;
+  duplicateCard: (cardId: string) => Promise<Card | null>;
   moveCardToFolder: (cardId: string, folderId?: string) => Promise<void>;
 
   createCard: (name: string, type: Card['type'], folderId?: string) => Promise<Card>;
@@ -155,6 +159,56 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       
       const current = worlds[0];
       const cards = await StorageService.listCardsByWorld(current.id);
+
+    // Seed Obsidian Default Template Structure if empty
+    const existingFolders = await StorageService.listFoldersByWorld(current.id);
+    if (existingFolders.length === 0) {
+      const foldersConfig = [
+        { name: '00 Operations', cat: 'general', files: ['Dashboard', 'Session Zero', 'House Rules'] },
+        { name: '01 Sessions', cat: 'general', sub: ['Prep', 'Logs'], files: ['Calendar'] },
+        { name: '02 Atlas', cat: 'location', sub: ['Regions', 'Settlements', 'Points of Interest'] },
+        { name: '03 Dramatis Personae', cat: 'character', sub: ['Party', 'NPCs', 'Factions'] },
+        { name: '04 Lore & Rules', cat: 'lore', sub: ['Pantheon & Myth', 'Bestiary', 'Compendium'] },
+        { name: '99 Templates', cat: 'general', files: ['T-Session', 'T-Location', 'T-NPC', 'T-Faction'] }
+      ];
+
+      for (const f of foldersConfig) {
+        const parentFolder = await StorageService.saveFolder({
+          id: crypto.randomUUID(),
+          worldId: current.id,
+          name: f.name,
+          category: f.cat as any
+        });
+
+        if (f.sub) {
+          for (const subName of f.sub) {
+            await StorageService.saveFolder({
+              id: crypto.randomUUID(),
+              worldId: current.id,
+              name: subName,
+              category: f.cat as any,
+              parentId: parentFolder.id
+            });
+          }
+        }
+
+        if (f.files) {
+          for (const fileName of f.files) {
+            await StorageService.saveCard({
+              id: crypto.randomUUID(),
+              worldId: current.id,
+              folderId: parentFolder.id,
+              name: fileName,
+              type: 'lore',
+              aliases: [],
+              content: `# ${fileName}\n\nWelcome to your ${fileName} note.`,
+              tags: [f.name.toLowerCase()]
+            });
+          }
+        }
+      }
+    }
+
       const folders = await StorageService.listFoldersByWorld(current.id);
       const maps = await StorageService.listMapsByWorld(current.id);
       const savedTokens = await StorageService.listSavedTokensByWorld(current.id);
@@ -235,6 +289,96 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     });
   },
 
+    
+                  deleteWorld: async (identifier) => {
+    await new Promise<void>((resolve) => {
+      const request = indexedDB.open('GrimoireDB');
+      request.onerror = () => resolve();
+      request.onsuccess = (e: any) => {
+        const db = e.target.result;
+        try {
+          const stores = Array.from(db.objectStoreNames);
+          const tx = db.transaction(stores, 'readwrite');
+          
+          if (db.objectStoreNames.contains('worlds')) {
+            const worldStore = tx.objectStore('worlds');
+            const cursorReq = worldStore.openCursor();
+            cursorReq.onsuccess = (ev: any) => {
+              const cursor = ev.target.result;
+              if (cursor) {
+                const val = cursor.value;
+                if (val && (val.id === identifier || val.name === identifier || val.id?.toString() === identifier?.toString())) {
+                  cursor.delete();
+                }
+                cursor.continue();
+              }
+            };
+          }
+
+          // Clear associated records
+          ['cards', 'folders', 'maps', 'sessions', 'combats'].forEach(s => {
+            if (db.objectStoreNames.contains(s)) {
+              try {
+                const store = tx.objectStore(s);
+                const index = store.index('worldId');
+                const req = index.openCursor();
+                req.onsuccess = (ev: any) => {
+                  const cursor = ev.target.result;
+                  if (cursor) {
+                    const val = cursor.value;
+                    if (val && (val.worldId === identifier || val.worldId?.toString() === identifier?.toString())) {
+                      cursor.delete();
+                    }
+                    cursor.continue();
+                  }
+                };
+              } catch (err) {}
+            }
+          });
+
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch (err) {
+          resolve();
+        }
+      };
+    });
+
+    const rawWorlds = await StorageService.listWorlds();
+    const uniqueMap = new Map();
+    rawWorlds.forEach(w => {
+      if (w.id !== identifier && w.name !== identifier) {
+        uniqueMap.set(w.id, w);
+      }
+    });
+    let remainingWorlds = Array.from(uniqueMap.values());
+
+    if (remainingWorlds.length === 0) {
+      const defaultWorld = {
+        id: crypto.randomUUID(),
+        name: 'Voltawic',
+        description: '',
+        genre: 'Fantasy',
+        createdAt: Date.now()
+      };
+      await StorageService.saveWorld(defaultWorld);
+      remainingWorlds.push(defaultWorld);
+    }
+
+    const nextWorld = remainingWorlds[0];
+    const cards = await StorageService.listCardsByWorld(nextWorld.id);
+    const folders = await StorageService.listFoldersByWorld(nextWorld.id);
+
+    set({
+      worlds: remainingWorlds,
+      currentWorld: nextWorld,
+      cards,
+      folders,
+      activeCardId: cards[0]?.id || null,
+      activeView: 'editor'
+    });
+  },
+
   createWorld: async (name, genre) => {
     const newWorld: World = {
       id: crypto.randomUUID(),
@@ -244,8 +388,74 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       createdAt: Date.now()
     };
     await StorageService.saveWorld(newWorld);
+
+    // Seed Obsidian Default Template Structure for new world
+    const foldersConfig = [
+      { name: '00 Operations', cat: 'general', files: ['Dashboard', 'Session Zero', 'House Rules'] },
+      { name: '01 Sessions', cat: 'general', sub: ['Prep', 'Logs'], files: ['Calendar'] },
+      { name: '02 Atlas', cat: 'location', sub: ['Regions', 'Settlements', 'Points of Interest'] },
+      { name: '03 Dramatis Personae', cat: 'character', sub: ['Party', 'NPCs', 'Factions'] },
+      { name: '04 Lore & Rules', cat: 'lore', sub: ['Pantheon & Myth', 'Bestiary', 'Compendium'] },
+      { name: '99 Templates', cat: 'general', files: ['T-Session', 'T-Location', 'T-NPC', 'T-Faction'] }
+    ];
+
+    for (const f of foldersConfig) {
+      const parentFolder = await StorageService.saveFolder({
+        id: crypto.randomUUID(),
+        worldId: newWorld.id,
+        name: f.name,
+        category: f.cat as any
+      });
+
+      if (f.sub) {
+        for (const subName of f.sub) {
+          await StorageService.saveFolder({
+            id: crypto.randomUUID(),
+            worldId: newWorld.id,
+            name: subName,
+            category: f.cat as any,
+            parentId: parentFolder.id
+          });
+        }
+      }
+
+      if (f.files) {
+        for (const fileName of f.files) {
+          await StorageService.saveCard({
+            id: crypto.randomUUID(),
+            worldId: newWorld.id,
+            folderId: parentFolder.id,
+            name: fileName,
+            type: 'lore',
+            aliases: [],
+            content: `# ${fileName}\n\nWelcome to your ${fileName} note.`,
+            tags: [f.name.toLowerCase()]
+          });
+        }
+      }
+    }
+
+    const cards = await StorageService.listCardsByWorld(newWorld.id);
+    const folders = await StorageService.listFoldersByWorld(newWorld.id);
     const worlds = await StorageService.listWorlds();
-    set({ worlds, currentWorld: newWorld, cards: [], folders: [], maps: [], savedTokens: [], relationships: [], events: [], combats: [], sessions: [], combatSounds: [], activeCardId: null, activeMapId: null, selectedTokenId: null });
+
+    set({ 
+      worlds, 
+      currentWorld: newWorld, 
+      cards, 
+      folders, 
+      maps: [], 
+      savedTokens: [], 
+      relationships: [], 
+      events: [], 
+      combats: [], 
+      sessions: [], 
+      combatSounds: [], 
+      activeCardId: cards[0]?.id || null, 
+      activeMapId: null, 
+      selectedTokenId: null,
+      activeView: 'editor'
+    });
     return newWorld;
   },
 
@@ -264,6 +474,40 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     await StorageService.saveFolder(newFolder);
     set({ folders: [...folders, newFolder] });
     return newFolder;
+  },
+
+  renameFolder: async (id, newName) => {
+    const { folders } = get();
+    const folder = folders.find(f => f.id === id);
+    if (!folder) return;
+    const updated = { ...folder, name: newName };
+    await StorageService.saveFolder(updated);
+    set({ folders: folders.map(f => f.id === id ? updated : f) });
+  },
+
+  moveFolderToFolder: async (folderId, parentId) => {
+    const { folders } = get();
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return;
+    const updated = { ...folder, parentId };
+    await StorageService.saveFolder(updated);
+    set({ folders: folders.map(f => f.id === folderId ? updated : f) });
+  },
+
+  duplicateCard: async (cardId) => {
+    const { cards, currentWorld } = get();
+    const card = cards.find(c => c.id === cardId);
+    if (!card || !currentWorld) return null;
+    const duplicated: Card = {
+      ...card,
+      id: crypto.randomUUID(),
+      name: `${card.name} (Copy)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    await StorageService.saveCard(duplicated);
+    set({ cards: [duplicated, ...cards], activeCardId: duplicated.id, activeView: 'editor' });
+    return duplicated;
   },
 
   deleteFolder: async (id) => {
