@@ -9,6 +9,7 @@ import { ReaderView } from './components/ReaderView';
 import { SessionView } from './components/SessionView';
 import { CommandPalette } from './components/CommandPalette';
 import { VaultSettingsModal } from './components/VaultSettingsModal';
+import { SettingsDrawer } from './components/SettingsDrawer';
 import { DiceRoller } from './components/DiceRoller';
 import { ProjectionService } from './services/broadcast';
 import type { Folder, Card } from './services/storage';
@@ -18,6 +19,7 @@ import {
   ChevronRight,
   Search,
   SlidersHorizontal,
+  Palette,
   Map as MapIcon,
   Network,
   Clock,
@@ -83,6 +85,7 @@ export default function App() {
   const [newCampaignName, setNewCampaignName] = useState('');
   const [newCampaignGenre, setNewCampaignGenre] = useState('Fantasy');
   const [isVaultOpen, setIsVaultOpen] = useState(false);
+  const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [isProjecting, setIsProjecting] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
 
@@ -310,7 +313,7 @@ export default function App() {
   ));
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0a0f17] text-slate-100 font-sans select-none relative">
+    <div className="flex flex-col h-screen w-screen overflow-hidden theme-bg-dark text-slate-100 font-sans select-none relative">
       
       {/* New Campaign Modal */}
       {isNewCampaignOpen && (
@@ -407,10 +410,11 @@ export default function App() {
 
       <CommandPalette isOpen={isCommandOpen} onClose={() => setIsCommandOpen(false)} />
       <VaultSettingsModal isOpen={isVaultOpen} onClose={() => setIsVaultOpen(false)} />
+      <SettingsDrawer isOpen={isSettingsDrawerOpen} onClose={() => setIsSettingsDrawerOpen(false)} />
       <DiceRoller />
 
       {/* Top Master Bar */}
-      <header className="h-10 px-3 flex items-center justify-between border-b border-white/5 bg-[#0d121b]/80 backdrop-blur-md z-30 shrink-0 text-xs">
+      <header className="h-10 px-3 flex items-center justify-between border-b border-white/5 theme-bg-sidebar backdrop-blur-md z-30 shrink-0 text-xs">
         <div className="flex items-center gap-1.5">
           <div className="relative">
             <button 
@@ -431,7 +435,7 @@ export default function App() {
                   <div
                     key={w.id}
                     className={`w-full px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors group ${
-                      currentWorld?.id === w.id ? 'bg-amber-500/20 text-amber-300 font-medium border border-amber-500/30' : 'hover:bg-white/10 text-slate-300'
+                      currentWorld?.id === w.id ? 'bg-white/10 font-medium theme-accent-text theme-accent-border border' : 'hover:bg-white/10 text-slate-300'
                     }`}
                   >
                     {editingWorldId === w.id ? (
@@ -602,6 +606,14 @@ export default function App() {
           <span className="text-slate-300 font-mono text-[11px] flex items-center gap-1.5">
             <Clock size={11} className="opacity-60" /> {currentTime}
           </span>
+            <button
+              onClick={() => setIsSettingsDrawerOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-300 transition-colors border border-white/10"
+              title="UI Themes & Settings"
+            >
+              <Palette size={13} className="text-amber-400" />
+              <span className="text-[11px] font-medium">Theme</span>
+            </button>
         </div>
       </header>
 

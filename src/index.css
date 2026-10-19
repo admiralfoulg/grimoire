@@ -1,11 +1,15 @@
 ﻿@import "tailwindcss";
 
 :root {
-  --vvd-bg-dark: #0b0d11;
-  --vvd-bg-sidebar: #12151c;
-  --vvd-bg-surface: #161922;
-  --vvd-border: rgba(255, 255, 255, 0.07);
-  --vvd-gold: #c8963e;
+  --vvd-bg-dark: #0a0f17;
+  --vvd-bg-sidebar: #0d121b;
+  --vvd-bg-surface: #121824;
+  --vvd-bg-elevated: #18212e;
+  --vvd-text-main: #f8fafc;
+  --vvd-text-muted: #94a3b8;
+  --vvd-text-faint: #64748b;
+  --vvd-border: rgba(255, 255, 255, 0.08);
+  --vvd-gold: #f59e0b;
 }
 
 html, body, #root {
@@ -13,57 +17,150 @@ html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
-  background-color: #0b0d11;
-  color: #f1f5f9;
+  background-color: var(--vvd-bg-dark) !important;
+  color: var(--vvd-text-main);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
   user-select: none;
 }
 
-/* Reset native button & input backgrounds */
+/* ============================================================
+   CANVAS, SIDEBAR & NOTE PAGE SURFACE MAPPINGS
+   ============================================================ */
+
+/* Main workstation desk backdrop */
+[class*="bg-[#0a0f17]"],
+[class*="bg-[#0b0d11]"],
+.theme-bg-dark {
+  background-color: var(--vvd-bg-dark) !important;
+}
+
+/* Sidebars, activity rail, master header bar & footers */
+[class*="bg-[#0d121a]"],
+[class*="bg-[#0d121b]"],
+[class*="bg-[#12151c]"],
+.theme-bg-sidebar {
+  background-color: var(--vvd-bg-sidebar) !important;
+}
+
+/* Note page container, cards, scratchpad, attributes & modals */
+[class*="bg-[#1b232f]"],
+[class*="bg-[#141b25]"],
+[class*="bg-[#121824]"],
+[class*="bg-[#161922]"],
+[class*="bg-[#161d2a]"],
+.theme-bg-surface {
+  background-color: var(--vvd-bg-surface) !important;
+}
+
+/* Elevated chips, search boxes, active items & inputs */
+[class*="bg-[#18212e]"],
+[class*="bg-[#202c3d]"],
+[class*="bg-[#1e293b]"],
+.theme-bg-elevated {
+  background-color: var(--vvd-bg-elevated) !important;
+}
+
+/* Note editor top action strip */
+[class*="bg-[#141b25]/50"] {
+  background-color: color-mix(in srgb, var(--vvd-bg-surface) 90%, var(--vvd-bg-dark)) !important;
+}
+
+/* ============================================================
+   LIGHT THEME INK & BORDER ADAPTATIONS
+   ============================================================ */
+html.theme-light {
+  color: var(--vvd-text-main) !important;
+}
+
+/* Force high-contrast dark ink on text & headings across all sidebars & notes */
+html.theme-light [class*="text-slate-100"],
+html.theme-light [class*="text-slate-200"],
+html.theme-light [class*="text-white"],
+html.theme-light h1,
+html.theme-light h2,
+html.theme-light h3,
+html.theme-light h4,
+html.theme-light input,
+html.theme-light textarea,
+html.theme-light select {
+  color: var(--vvd-text-main) !important;
+}
+
+/* Muted / Body copy / Tree labels */
+html.theme-light [class*="text-slate-300"],
+html.theme-light [class*="text-slate-400"],
+html.theme-light p {
+  color: var(--vvd-text-muted) !important;
+}
+
+/* Faint labels / Folder counts / Placeholders */
+html.theme-light [class*="text-slate-500"],
+html.theme-light [class*="text-slate-600"],
+html.theme-light ::placeholder {
+  color: var(--vvd-text-faint) !important;
+}
+
+/* Dark theme translucent borders mapped to subtle light ink borders */
+html.theme-light [class*="border-white/"] {
+  border-color: var(--vvd-border) !important;
+}
+
+/* Tree & Sidebar hover states in light mode */
+html.theme-light .hover\:bg-white\/5:hover,
+html.theme-light .hover\:bg-white\/10:hover {
+  background-color: color-mix(in srgb, var(--vvd-gold) 18%, var(--vvd-bg-sidebar)) !important;
+}
+
+/* Tree active note highlight in light mode */
+html.theme-light [class*="bg-[#18212e]"] {
+  background-color: color-mix(in srgb, var(--vvd-gold) 22%, var(--vvd-bg-sidebar)) !important;
+  color: var(--vvd-text-main) !important;
+}
+
+/* ============================================================
+   ACCENTS & HIGHLIGHTS
+   ============================================================ */
+
+/* Gold & Amber labels and icons */
+[class*="text-amber-300"],
+[class*="text-amber-400"],
+[class*="text-amber-500"] {
+  color: var(--vvd-gold) !important;
+}
+
+/* Solid accent buttons */
+[class~="bg-amber-500"],
+[class~="bg-amber-400"],
+[class~="bg-amber-600"] {
+  background-color: var(--vvd-gold) !important;
+  color: #000000 !important;
+}
+
+/* Translucent accent badges */
+[class*="bg-amber-500/"],
+[class*="bg-amber-400/"] {
+  background-color: color-mix(in srgb, var(--vvd-gold) 20%, transparent) !important;
+}
+
+/* Accent borders */
+[class*="border-amber-300"],
+[class*="border-amber-400"],
+[class*="border-amber-500"] {
+  border-color: var(--vvd-gold) !important;
+}
+
+/* Focus rings */
+[class*="ring-amber-400"],
+[class*="ring-amber-500"] {
+  --tw-ring-color: var(--vvd-gold) !important;
+}
+
+/* Native button & input reset */
 button {
   background: transparent;
   border: none;
   font-family: inherit;
   color: inherit;
   cursor: pointer;
-}
-
-input, select, textarea {
-  font-family: inherit;
-}
-
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
-.wiki-link {
-  color: #dfa94b;
-  background: rgba(200, 150, 62, 0.12);
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
-  cursor: pointer;
-  text-decoration: none;
-  font-weight: 500;
-  border: 1px solid rgba(200, 150, 62, 0.3);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  transition: all 0.15s ease-in-out;
-}
-.wiki-link:hover {
-  background: rgba(200, 150, 62, 0.25);
-  border-color: #dfa94b;
-  color: #fff;
 }
