@@ -52,6 +52,7 @@ interface GrimoireState {
   loadWorldData: (worldId: string) => Promise<void>;
   createWorld: (name: string, genre: string) => Promise<World>;
   deleteWorld: (worldId: string) => Promise<void>;
+  renameWorld: (worldId: string, newName: string) => Promise<void>;
   
   createFolder: (name: string, category: Folder['category'], parentId?: string) => Promise<Folder>;
   deleteFolder: (id: string) => Promise<void>;
@@ -290,95 +291,154 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   },
 
     
-                  deleteWorld: async (identifier) => {
+                    
+  
+
+    
+
+  
+    
+    
+    
+
+  
+    
+    
+    
+
+  
+    
+
+  
+    renameWorld: async (worldId, newName) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    console.log('[Grimoire] Renaming world in grimoire_workstation_db:', worldId, 'to:', trimmed);
+
     await new Promise<void>((resolve) => {
-      const request = indexedDB.open('GrimoireDB');
-      request.onerror = () => resolve();
-      request.onsuccess = (e: any) => {
+      const req = indexedDB.open('grimoire_workstation_db');
+      req.onsuccess = (e: any) => {
         const db = e.target.result;
-        try {
-          const stores = Array.from(db.objectStoreNames);
-          const tx = db.transaction(stores, 'readwrite');
-          
-          if (db.objectStoreNames.contains('worlds')) {
-            const worldStore = tx.objectStore('worlds');
-            const cursorReq = worldStore.openCursor();
-            cursorReq.onsuccess = (ev: any) => {
+        if (!db.objectStoreNames.contains('worlds')) {
+          console.warn('[Grimoire] worlds store not found');
+          return resolve();
+        }
+        const tx = db.transaction(['worlds'], 'readwrite');
+        const store = tx.objectStore('worlds');
+        const cursorReq = store.openCursor();
+        cursorReq.onsuccess = (ev: any) => {
+          const cursor = ev.target.result;
+          if (cursor) {
+            const world = cursor.value;
+            if (world && (world.id === worldId || world.name === worldId)) {
+              world.name = trimmed;
+              cursor.update(world);
+            }
+            cursor.continue();
+          }
+        };
+        tx.oncomplete = () => {
+          console.log('[Grimoire] Successfully updated world name in DB');
+          resolve();
+        };
+        tx.onerror = () => resolve();
+      };
+      req.onerror = () => resolve();
+    });
+
+    const rawWorlds = await StorageService.listWorlds();
+    const { currentWorld } = get();
+    const updatedCurrent = (currentWorld?.id === worldId || currentWorld?.name === worldId)
+      ? { ...currentWorld, name: trimmed }
+      : currentWorld;
+
+    set({
+      worlds: rawWorlds,
+      currentWorld: updatedCurrent
+    });
+  },
+
+  deleteWorld: async (targetIdOrName) => {
+    console.log('[Grimoire] Deleting world(s) from grimoire_workstation_db matching:', targetIdOrName);
+    
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.open('grimoire_workstation_db');
+      req.onsuccess = (e: any) => {
+        const db = e.target.result;
+        const available = Array.from(db.objectStoreNames) as string[];
+        const storesToLock = ['worlds', 'cards', 'folders'].filter(s => available.includes(s));
+        
+        if (storesToLock.length === 0) return resolve();
+        
+        const tx = db.transaction(storesToLock, 'readwrite');
+        
+        if (available.includes('worlds')) {
+          const worldStore = tx.objectStore('worlds');
+          const cursorReq = worldStore.openCursor();
+          cursorReq.onsuccess = (ev: any) => {
+            const cursor = ev.target.result;
+            if (cursor) {
+              const w = cursor.value;
+              if (w && (w.id === targetIdOrName || w.name === targetIdOrName)) {
+                cursor.delete();
+              }
+              cursor.continue();
+            }
+          };
+        }
+
+        ['cards', 'folders'].forEach(s => {
+          if (available.includes(s)) {
+            const store = tx.objectStore(s);
+            const cur = store.openCursor();
+            cur.onsuccess = (ev: any) => {
               const cursor = ev.target.result;
               if (cursor) {
-                const val = cursor.value;
-                if (val && (val.id === identifier || val.name === identifier || val.id?.toString() === identifier?.toString())) {
+                const item = cursor.value;
+                if (item && item.worldId === targetIdOrName) {
                   cursor.delete();
                 }
                 cursor.continue();
               }
             };
           }
+        });
 
-          // Clear associated records
-          ['cards', 'folders', 'maps', 'sessions', 'combats'].forEach(s => {
-            if (db.objectStoreNames.contains(s)) {
-              try {
-                const store = tx.objectStore(s);
-                const index = store.index('worldId');
-                const req = index.openCursor();
-                req.onsuccess = (ev: any) => {
-                  const cursor = ev.target.result;
-                  if (cursor) {
-                    const val = cursor.value;
-                    if (val && (val.worldId === identifier || val.worldId?.toString() === identifier?.toString())) {
-                      cursor.delete();
-                    }
-                    cursor.continue();
-                  }
-                };
-              } catch (err) {}
-            }
-          });
-
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => resolve();
-        } catch (err) {
+        tx.oncomplete = () => {
+          console.log('[Grimoire] Deletion transaction completed in grimoire_workstation_db');
           resolve();
-        }
+        };
+        tx.onerror = () => resolve();
       };
+      req.onerror = () => resolve();
     });
 
     const rawWorlds = await StorageService.listWorlds();
-    const uniqueMap = new Map();
-    rawWorlds.forEach(w => {
-      if (w.id !== identifier && w.name !== identifier) {
-        uniqueMap.set(w.id, w);
-      }
-    });
-    let remainingWorlds = Array.from(uniqueMap.values());
+    let remaining = rawWorlds.filter(w => w.id !== targetIdOrName && w.name !== targetIdOrName);
 
-    if (remainingWorlds.length === 0) {
+    if (remaining.length === 0) {
       const defaultWorld = {
         id: crypto.randomUUID(),
-        name: 'Voltawic',
+        name: 'The First Realm',
         description: '',
         genre: 'Fantasy',
         createdAt: Date.now()
       };
       await StorageService.saveWorld(defaultWorld);
-      remainingWorlds.push(defaultWorld);
+      remaining = [defaultWorld];
     }
 
-    const nextWorld = remainingWorlds[0];
-    const cards = await StorageService.listCardsByWorld(nextWorld.id);
-    const folders = await StorageService.listFoldersByWorld(nextWorld.id);
-
+    const nextWorld = remaining[0];
     set({
-      worlds: remainingWorlds,
-      currentWorld: nextWorld,
-      cards,
-      folders,
-      activeCardId: cards[0]?.id || null,
-      activeView: 'editor'
+      worlds: remaining,
+      currentWorld: nextWorld
     });
-  },
 
+    const { loadWorldData, currentWorld } = get();
+    if (nextWorld && nextWorld.id !== currentWorld?.id) {
+      await loadWorldData(nextWorld.id);
+    }
+  },
   createWorld: async (name, genre) => {
     const newWorld: World = {
       id: crypto.randomUUID(),

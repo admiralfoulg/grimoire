@@ -62,6 +62,7 @@ export default function App() {
     duplicateCard,
     createWorld,
     deleteWorld,
+    renameWorld,
     createFolder,
     renameFolder,
     deleteFolder,
@@ -75,6 +76,8 @@ export default function App() {
   const [isCommandOpen, setIsCommandOpen] = useState(false);
   const [isCampaignDropdownOpen, setIsCampaignDropdownOpen] = useState(false);
   const [worldToDelete, setWorldToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [editingWorldId, setEditingWorldId] = useState<string | null>(null);
+  const [editWorldName, setEditWorldName] = useState('');
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isNewCampaignOpen, setIsNewCampaignOpen] = useState(false);
   const [newCampaignName, setNewCampaignName] = useState('');
@@ -416,28 +419,72 @@ export default function App() {
                       currentWorld?.id === w.id ? 'bg-amber-500/20 text-amber-300 font-medium border border-amber-500/30' : 'hover:bg-white/10 text-slate-300'
                     }`}
                   >
-                    <button
-                      onClick={async () => {
-                        await loadWorldData(w.id);
-                        setIsCampaignDropdownOpen(false);
-                      }}
-                      className="flex-1 text-left truncate flex items-center justify-between pr-2"
-                    >
-                      <span className="truncate">{w.name}</span>
-                      <span className="text-[10px] text-slate-500 capitalize">{w.genre || 'Fantasy'}</span>
-                    </button>
-                    {worlds.length > 1 && (
-                      <button
-                        title="Delete Campaign"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsCampaignDropdownOpen(false);
-                          setWorldToDelete({ id: w.id, name: w.name });
-                        }}
-                        className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-slate-500 p-1 transition-opacity"
-                      >
-                        🗑️
-                      </button>
+                    {editingWorldId === w.id ? (
+                      <div className="flex-1 flex items-center gap-1">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={editWorldName}
+                          onChange={e => setEditWorldName(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if (e.key === 'Enter') {
+                              await renameWorld(w.id, editWorldName);
+                              setEditingWorldId(null);
+                            } else if (e.key === 'Escape') {
+                              setEditingWorldId(null);
+                            }
+                          }}
+                          className="w-full bg-black/60 border border-amber-500/50 rounded px-2 py-1 text-xs text-white outline-none"
+                        />
+                        <button
+                          onClick={async () => {
+                            await renameWorld(w.id, editWorldName);
+                            setEditingWorldId(null);
+                          }}
+                          className="text-[10px] bg-amber-500 text-black font-bold px-2 py-1 rounded"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={async () => {
+                            await loadWorldData(w.id);
+                            setIsCampaignDropdownOpen(false);
+                          }}
+                          className="flex-1 text-left truncate flex items-center justify-between pr-2"
+                        >
+                          <span className="truncate">{w.name}</span>
+                          <span className="text-[10px] text-slate-500 capitalize">{w.genre || 'Fantasy'}</span>
+                        </button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            title="Rename Campaign"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingWorldId(w.id);
+                              setEditWorldName(w.name);
+                            }}
+                            className="hover:text-amber-400 text-slate-500 p-1"
+                          >
+                            ✏️
+                          </button>
+                          {worlds.length > 1 && (
+                            <button
+                              title="Delete Campaign"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIsCampaignDropdownOpen(false);
+                                setWorldToDelete({ id: w.id, name: w.name });
+                              }}
+                              className="hover:text-red-400 text-slate-500 p-1"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
                 ))}
