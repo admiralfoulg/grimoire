@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGrimoireStore } from '../store/useGrimoireStore';
 import { ProjectionService, type ActiveRulerData, type PlayerCombatantView } from '../services/broadcast';
-import type { MapToken, MapLighting, SightType, MapObstacle, ObstacleType, SavedTokenTemplate, WorldMap, Combatant, CombatSoundTrigger } from '../services/storage';
+import type { MapToken, SightType, ObstacleType, SavedTokenTemplate, WorldMap, Combatant, CombatSoundTrigger } from '../services/storage';
 import { 
   Globe, 
   Swords, 
@@ -136,6 +136,50 @@ interface RosterContextMenu {
   template: SavedTokenTemplate;
 }
 
+// 2D Line Segment Intersection Algorithm with Gap-Sealing Endpoint Buffering (epsilon)
+const segmentIntersectsSegment = (
+  p1x: number, p1y: number, p2x: number, p2y: number,
+  q1x: number, q1y: number, q2x: number, q2y: number,
+  epsilon: number = 0.15
+): boolean => {
+  const dx = q2x - q1x;
+  const dy = q2y - q1y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  let ax = q1x;
+  let ay = q1y;
+  let bx = q2x;
+  let by = q2y;
+
+  if (len > 0.0001 && epsilon > 0) {
+    const ux = (dx / len) * epsilon;
+    const uy = (dy / len) * epsilon;
+    ax = q1x - ux;
+    ay = q1y - uy;
+    bx = q2x + ux;
+    by = q2y + uy;
+  }
+
+  const cross = (vx: number, vy: number, wx: number, wy: number) => vx * wy - vy * wx;
+
+  const rX = p2x - p1x;
+  const rY = p2y - p1y;
+  const sX = bx - ax;
+  const sY = by - ay;
+
+  const rxs = cross(rX, rY, sX, sY);
+  const qpx = ax - p1x;
+  const qpy = ay - p1y;
+
+  if (Math.abs(rxs) < 1e-9) {
+    return false;
+  }
+
+  const t = cross(qpx, qpy, sX, sY) / rxs;
+  const u = cross(qpx, qpy, rX, rY) / rxs;
+
+  return (t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0);
+};
+
 export const MapView: React.FC = () => {
   const { 
     maps, 
@@ -220,7 +264,13 @@ export const MapView: React.FC = () => {
   const [renamingMapName, setRenamingMapName] = useState('');
 
   // Tools
-  const [toolMode, setToolMode] = useState<'select' | 'ruler' | 'addToken' | 'addWall' | 'addDoor' | 'addSecretDoor' | 'addChest' | 'addSecretChest' | 'addTable' | 'eraseObstacle' | 'fogReveal' | 'fogShroud'>('select');
+  const [blockerShapeStart, setBlockerShapeStart] = useState<{ x: number; y: number } | null>(null);
+  const [currentDragPos, setCurrentDragPos] = useState<{ x: number; y: number } | null>(null);
+  const [toolMode, setToolMode] = useState<'select' | 'ruler' | 'addToken' | 'addWall' | 'addDoor' | 'addSecretDoor' | 'addWindow' | 'addChest' | 'addSecretChest' | 'addTable' | 'eraseObstacle' | 'fogReveal' | 'fogShroud' | 'addBlockerCircle' | 'addBlockerBox' | 'addBlockerCircle' | 'addBlockerBox'>('select');
+
+  // Vector Drawing State
+    const [lineStartPoint, setLineStartPoint] = useState<{ x: number; y: number } | null>(null);
+  const [currentMousePos, setCurrentMousePos] = useState<{ x: number; y: number } | null>(null);
 
   // Ruler Tool State
   const [rulerStart, setRulerStart] = useState<{ x: number; y: number } | null>(null);
@@ -228,14 +278,14 @@ export const MapView: React.FC = () => {
 
   // Token Deployment State
   const [tokenName, setTokenName] = useState('Hero');
-  const [tokenColor, setTokenColor] = useState('#ef4444');
+  const [tokenColor] = useState('#ef4444');
   const [tokenImageUrl, setTokenImageUrl] = useState<string>('');
   const [tokenSize, setTokenSize] = useState<'medium' | 'large' | 'huge'>('medium');
   const [tokenHp, setTokenHp] = useState<number>(30);
-  const [tokenSecret, setTokenSecret] = useState(false);
+  const [tokenSecret] = useState(false);
   const [tokenIsPlayer, setTokenIsPlayer] = useState(true);
-  const [tokenVisionRange, setTokenVisionRange] = useState<number>(6);
-  const [tokenSightType, setTokenSightType] = useState<SightType>('normal');
+  const [tokenVisionRange] = useState<number>(6);
+  const [tokenSightType] = useState<SightType>('normal');
 
   // Synchronous Anti-Bounce Token Coordinate Store
   const tokenCoordsRef = useRef<Record<string, { x: number; y: number }>>({});
@@ -243,7 +293,7 @@ export const MapView: React.FC = () => {
 
   // Continuous Drag-Painting State
   const [isMouseDownOnCanvas, setIsMouseDownOnCanvas] = useState(false);
-
+    
   // Custom Right-Click Context Menu State
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
@@ -252,6 +302,100 @@ export const MapView: React.FC = () => {
   const [showGridOverlay, setShowGridOverlay] = useState<boolean>(false);
   const gridCols = activeMap?.gridCols ?? 25;
   const gridRows = activeMap?.gridRows ?? 30;
+
+  // Snapping helper: snaps directly to nearest grid vertex/corner
+  
+  // Checks if a straight path from (x1, y1) to (x2, y2) crosses any solid wall or closed door
+  const isMovementBlocked = (x1: number, y1: number, x2: number, y2: number): boolean => {
+    const obstacles = activeMap?.obstacles || [];
+    for (const obs of obstacles) {
+      if (obs.x1 !== undefined && obs.y1 !== undefined && obs.x2 !== undefined && obs.y2 !== undefined) {
+        if (obs.type === 'door' && obs.isOpen) continue;
+        if (obs.type === 'window') continue;
+        if (segmentIntersectsSegment(x1, y1, x2, y2, obs.x1, obs.y1, obs.x2, obs.y2, 0.15)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  
+  // Checks if moving from (fromX, fromY) to (toX, toY) is blocked by ANY wall or closed door (tile or vector)
+  const isMoveBlocked = (fromX: number, fromY: number, toX: number, toY: number): boolean => {
+    if (!activeMap) return false;
+    const toCol = Math.floor((toX / 100) * gridCols);
+    const toRow = Math.floor((toY / 100) * gridRows);
+
+    const obstacles = activeMap.obstacles || [];
+    for (const obs of obstacles) {
+      const isSolid = obs.type === 'wall' || (obs.type === 'door' && !obs.isOpen);
+      if (!isSolid) continue;
+
+      // Check Tile-based walls
+      if (obs.col !== undefined && obs.row !== undefined) {
+        if (obs.col === toCol && obs.row === toRow) {
+          return true;
+        }
+      }
+
+      
+      // Check Free-Floating Blocker Boxes (Cubes)
+      if (obs.type === 'table' || (obs as any).shapeType === 'box') {
+        const bx = (obs as any).boxX ?? ((obs.col ?? 0) * (100 / gridCols));
+        const by = (obs as any).boxY ?? ((obs.row ?? 0) * (100 / gridRows));
+        const bw = (obs as any).boxW ?? (100 / gridCols);
+        const bh = (obs as any).boxH ?? (100 / gridRows);
+        if (toX >= bx && toX <= bx + bw && toY >= by && toY <= by + bh) {
+          return true;
+        }
+      }
+
+      // Check Free-Floating Blocker Circles (Blocks entry if >50% of tile is covered)
+      if ((obs as any).shapeType === 'circle' && (obs as any).circleR) {
+        const cx = (obs as any).circleX ?? 0;
+        const cy = (obs as any).circleY ?? 0;
+        const cr = (obs as any).circleR ?? 0;
+        
+        // Calculate cell center
+        const cellCenterX = (toCol + 0.5) * (100 / gridCols);
+        const cellCenterY = (toRow + 0.5) * (100 / gridRows);
+        const cellRadius = (100 / Math.max(gridCols, gridRows)) * 0.5;
+        
+        // Distance from circle center to grid cell center
+        const dist = Math.hypot(cellCenterX - cx, cellCenterY - cy);
+        
+        // Coverage threshold: If circle covers >50% of the square's inscribed area
+        if (dist < cr + (cellRadius * 0.15) && cr >= cellRadius * 0.707) {
+          return true;
+        }
+      }
+
+      // Check Vector-based line walls
+      if (obs.x1 !== undefined && obs.y1 !== undefined && obs.x2 !== undefined && obs.y2 !== undefined) {
+        if (typeof segmentIntersectsSegment === 'function') {
+          if (segmentIntersectsSegment(fromX, fromY, toX, toY, obs.x1, obs.y1, obs.x2, obs.y2, 0.15)) {
+            return true;
+          }
+        } else if (typeof linesIntersect === 'function') {
+          if (linesIntersect(fromX, fromY, toX, toY, obs.x1, obs.y1, obs.x2, obs.y2)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  const snapPointToGrid = useCallback((x: number, y: number): { x: number; y: number } => {
+    if (!snapToGrid || gridCols <= 0 || gridRows <= 0) return { x, y };
+    const stepX = 100 / gridCols;
+    const stepY = 100 / gridRows;
+    return {
+      x: Math.round(x / stepX) * stepX,
+      y: Math.round(y / stepY) * stepY
+    };
+  }, [snapToGrid, gridCols, gridRows]);
 
   // Map Creation Modal State
   const [isCreatingMap, setIsCreatingMap] = useState(false);
@@ -274,6 +418,7 @@ export const MapView: React.FC = () => {
     }
   }, [activeMap?.tokens]);
 
+  const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
   const rawSelectedToken = activeMap?.tokens?.find(t => t.id === selectedTokenId) || null;
   const selectedToken = rawSelectedToken ? {
     ...rawSelectedToken,
@@ -295,6 +440,24 @@ export const MapView: React.FC = () => {
   );
 
   const hasLineOfSight = (c0: number, r0: number, c1: number, r1: number): boolean => {
+    const obstacles = activeMap?.obstacles || [];
+    const cellW = 100 / gridCols;
+    const cellH = 100 / gridRows;
+
+    const startX = (c0 + 0.5) * cellW;
+    const startY = (r0 + 0.5) * cellH;
+    const endX = (c1 + 0.5) * cellW;
+    const endY = (r1 + 0.5) * cellH;
+
+    for (const obs of obstacles) {
+      if (obs.x1 !== undefined && obs.y1 !== undefined && obs.x2 !== undefined && obs.y2 !== undefined) {
+        if (obs.type === 'door' && obs.isOpen) continue;
+        if (obs.type === 'window') continue;
+        if (segmentIntersectsSegment(startX, startY, endX, endY, obs.x1, obs.y1, obs.x2, obs.y2, 0.15)) {
+          return false;
+        }
+      }
+    }
     let dx = Math.abs(c1 - c0);
     let dy = Math.abs(r1 - r0);
     let sx = c0 < c1 ? 1 : -1;
@@ -433,9 +596,12 @@ export const MapView: React.FC = () => {
       const newX = Math.max(cellW / 2, Math.min(100 - cellW / 2, current.x + dx));
       const newY = Math.max(cellH / 2, Math.min(100 - cellH / 2, current.y + dy));
 
-      const targetCol = Math.floor((newX / 100) * gridCols);
-      const targetRow = Math.floor((newY / 100) * gridRows);
-      if (solidObstaclesSet.has(`${targetCol},${targetRow}`)) {
+      if (isMoveBlocked(current.x, current.y, newX, newY)) {
+        return;
+      }
+
+      // Block token from moving into or through any wall or closed door
+      if (isMoveBlocked(current.x, current.y, newX, newY)) {
         return;
       }
 
@@ -688,7 +854,7 @@ export const MapView: React.FC = () => {
     if (!activeMap) return;
     if (col < 0 || col >= gridCols || row < 0 || row >= gridRows) return;
 
-    if (['addWall', 'addDoor', 'addSecretDoor', 'addChest', 'addSecretChest', 'addTable'].includes(toolMode)) {
+    if (['addChest', 'addSecretChest', 'addTable'].includes(toolMode)) {
       const isSecret = toolMode === 'addSecretDoor' || toolMode === 'addSecretChest';
       let type: ObstacleType = 'wall';
       if (toolMode === 'addDoor' || toolMode === 'addSecretDoor') type = 'door';
@@ -721,6 +887,16 @@ export const MapView: React.FC = () => {
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     setIsMouseDownOnCanvas(true);
+    if (toolMode === 'addBlockerCircle' || toolMode === 'addBlockerBox') {
+      const rect = mapContainerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const rawX = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+        const rawY = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+        setBlockerShapeStart({ x: rawX, y: rawY });
+        setCurrentDragPos({ x: rawX, y: rawY });
+        return;
+      }
+    }
     if (!activeMap || !mapContainerRef.current) return;
 
     const rect = mapContainerRef.current.getBoundingClientRect();
@@ -729,6 +905,16 @@ export const MapView: React.FC = () => {
 
     const col = Math.floor((rawX / 100) * gridCols);
     const row = Math.floor((rawY / 100) * gridRows);
+
+    if (['addWall', 'addDoor', 'addSecretDoor', 'addWindow'].includes(toolMode)) {
+      const snapped = snapPointToGrid(rawX, rawY);
+      setCurrentMousePos(snapped);
+    }
+
+    if (toolMode === 'addBlockerCircle' || toolMode === 'addBlockerBox') {
+      setBlockerShapeStart({ x: rawX, y: rawY });
+      return;
+    }
 
     if (toolMode === 'ruler') {
       const snappedX = snapCoordinate(rawX, gridCols);
@@ -744,11 +930,40 @@ export const MapView: React.FC = () => {
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!activeMap) return;
+    if (!activeMap || !mapContainerRef.current) return;
     setContextMenu(null);
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = mapContainerRef.current.getBoundingClientRect();
     const rawX = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
     const rawY = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+
+    // Continuous Vector Wall/Door/Window Chaining
+    if (['addWall', 'addDoor', 'addSecretDoor', 'addWindow'].includes(toolMode)) {
+      const snapped = snapPointToGrid(rawX, rawY);
+      if (!lineStartPoint) {
+        setLineStartPoint(snapped);
+      } else {
+        const dist = Math.hypot(snapped.x - lineStartPoint.x, snapped.y - lineStartPoint.y);
+        if (dist > 0.4) {
+          const isSecret = toolMode === 'addSecretDoor';
+          let type: ObstacleType = 'wall';
+          if (toolMode === 'addDoor' || toolMode === 'addSecretDoor') type = 'door';
+          if (toolMode === 'addWindow') type = 'window';
+
+          addObstacleToMap(activeMap.id, {
+            type,
+            x1: lineStartPoint.x,
+            y1: lineStartPoint.y,
+            x2: snapped.x,
+            y2: snapped.y,
+            isOpen: false,
+            isSecret
+          });
+          setLineStartPoint(snapped);
+          recalculateAllPlayerVision();
+        }
+      }
+      return;
+    }
 
     if (isAddingPin) {
       addPinToMap(activeMap.id, {
@@ -790,12 +1005,19 @@ export const MapView: React.FC = () => {
       setToolMode('select');
     } else if (toolMode === 'select') {
       setSelectedTokenId(null);
+      setIsTokenDrawerOpen(false);
     }
   };
 
   const handleMapContextMenu = (e: React.MouseEvent<HTMLDivElement>, tokenId?: string, obstacleId?: string) => {
     e.preventDefault();
     e.stopPropagation();
+
+    if (lineStartPoint) {
+      setLineStartPoint(null);
+      setCurrentMousePos(null);
+      return;
+    }
 
     if (!mapContainerRef.current) return;
     const rect = mapContainerRef.current.getBoundingClientRect();
@@ -816,12 +1038,14 @@ export const MapView: React.FC = () => {
 
     if (tokenId) {
       setSelectedTokenId(tokenId);
+      setIsTokenDrawerOpen(true);
     }
   };
 
   const handleTokenClick = (e: React.MouseEvent, tokenId: string) => {
     e.stopPropagation();
     setSelectedTokenId(tokenId);
+    // Left-click selects without forcing the side drawer open
   };
 
   const handleTokenMouseDown = (e: React.MouseEvent, tokenId: string) => {
@@ -877,6 +1101,11 @@ export const MapView: React.FC = () => {
       return;
     }
 
+    if (blockerShapeStart && (toolMode === 'addBlockerCircle' || toolMode === 'addBlockerBox')) {
+      setCurrentDragPos({ x: rawX, y: rawY });
+      return;
+    }
+
     if (isMouseDownOnCanvas && ['addWall', 'addDoor', 'addSecretDoor', 'addChest', 'addSecretChest', 'addTable', 'eraseObstacle', 'fogReveal', 'fogShroud'].includes(toolMode)) {
       applyToolAtTile(col, row);
       return;
@@ -887,6 +1116,12 @@ export const MapView: React.FC = () => {
       const size = token?.size || 'medium';
       const finalX = snapCoordinate(rawX, gridCols, size);
       const finalY = snapCoordinate(rawY, gridRows, size);
+      const current = tokenCoordsRef.current[draggingTokenId] || { x: token?.x ?? finalX, y: token?.y ?? finalY };
+
+      // Prevent dragging tokens through solid walls or closed doors
+      if (isMoveBlocked(current.x, current.y, finalX, finalY)) {
+        return;
+      }
 
       tokenCoordsRef.current[draggingTokenId] = { x: finalX, y: finalY };
       forceUpdate({});
@@ -900,12 +1135,79 @@ export const MapView: React.FC = () => {
   };
 
   const handleMouseUp = () => {
+    if (blockerShapeStart && currentDragPos && activeMap) {
+      if (toolMode === 'addBlockerCircle') {
+        const r = Math.hypot(currentDragPos.x - blockerShapeStart.x, currentDragPos.y - blockerShapeStart.y);
+        if (r > 0.5) {
+          addObstacleToMap(activeMap.id, {
+            type: 'wall',
+            shapeType: 'circle',
+            circleX: blockerShapeStart.x,
+            circleY: blockerShapeStart.y,
+            circleR: r,
+            isSecret: true
+          } as any);
+        }
+      } else if (toolMode === 'addBlockerBox') {
+        const bx = Math.min(blockerShapeStart.x, currentDragPos.x);
+        const by = Math.min(blockerShapeStart.y, currentDragPos.y);
+        const bw = Math.abs(currentDragPos.x - blockerShapeStart.x);
+        const bh = Math.abs(currentDragPos.y - blockerShapeStart.y);
+        if (bw > 0.5 && bh > 0.5) {
+          addObstacleToMap(activeMap.id, {
+            type: 'wall',
+            shapeType: 'box',
+            boxX: bx,
+            boxY: by,
+            boxW: bw,
+            boxH: bh,
+            isSecret: true
+          } as any);
+        }
+      }
+      setBlockerShapeStart(null);
+      setCurrentDragPos(null);
+      setToolMode('select');
+    }
     setDraggingTokenId(null);
     setIsMouseDownOnCanvas(false);
     setIsDraggingSidebar(false);
     setIsResizingSidebar(null);
     if (toolMode === 'ruler') {
       setRulerStart(null);
+    }
+    if (blockerShapeStart && currentMousePos && activeMap) {
+      if (toolMode === 'addBlockerCircle') {
+        const r = Math.hypot(currentMousePos.x - blockerShapeStart.x, currentMousePos.y - blockerShapeStart.y);
+        if (r > 0.8) {
+          addObstacleToMap(activeMap.id, {
+            type: 'wall',
+            shapeType: 'circle',
+            circleX: blockerShapeStart.x,
+            circleY: blockerShapeStart.y,
+            circleR: r,
+            isSecret: true
+          } as any);
+        }
+      } else if (toolMode === 'addBlockerBox') {
+        const bx = Math.min(blockerShapeStart.x, currentMousePos.x);
+        const by = Math.min(blockerShapeStart.y, currentMousePos.y);
+        const bw = Math.abs(currentMousePos.x - blockerShapeStart.x);
+        const bh = Math.abs(currentMousePos.y - blockerShapeStart.y);
+        if (bw > 0.8 && bh > 0.8) {
+          addObstacleToMap(activeMap.id, {
+            type: 'wall',
+            shapeType: 'box',
+            boxX: bx,
+            boxY: by,
+            boxW: bw,
+            boxH: bh,
+            isSecret: true
+          } as any);
+        }
+      }
+      setBlockerShapeStart(null);
+      setToolMode('select');
     }
   };
 
@@ -1389,7 +1691,7 @@ export const MapView: React.FC = () => {
 
           {/* ACTIVE TOOL & SELECTION STATUS BADGE */}
           {toolMode !== 'select' ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold animate-in fade-in">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/20 border border-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.9)] text-amber-300 text-xs font-bold animate-in fade-in">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
               <span>
                 {toolMode === 'addToken' && 'Click Map to Place'}
@@ -1642,7 +1944,7 @@ export const MapView: React.FC = () => {
                   <button
                     onClick={() => setMapLighting(activeMap.id, 'bright')}
                     className={`p-1.5 rounded-lg text-xs transition-colors ${
-                      ambientLighting === 'bright' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'text-slate-500 hover:text-slate-300'
+                      ambientLighting === 'bright' ? 'bg-amber-500/20 text-amber-300 border border-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.9)]' : 'text-slate-500 hover:text-slate-300'
                     }`}
                     title="Atmosphere: Bright Light"
                   >
@@ -1717,84 +2019,122 @@ export const MapView: React.FC = () => {
                     <Box size={15} />
                   </button>
 
-                  {showObjectsMenu && (
-                    <div 
-                      onClick={(e) => e.stopPropagation()}
-                      className="absolute top-11 right-0 z-40 p-1.5 rounded-xl bg-[#121824] border border-white/10 shadow-2xl flex flex-col gap-1 w-48 animate-in fade-in"
-                    >
-                      <button
-                        onClick={() => { setToolMode('addWall'); setShowObjectsMenu(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
-                          toolMode === 'addWall' ? 'bg-amber-500/20 text-amber-300' : 'hover:bg-white/5 text-slate-300'
-                        }`}
-                      >
-                        <Square size={12} className="text-amber-400" />
-                        <span>Draw Walls</span>
-                      </button>
+              {showObjectsMenu && (
+                <div 
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute top-11 right-0 z-40 p-2 rounded-2xl bg-[#121824] border border-white/15 shadow-2xl flex flex-col gap-1 w-56 animate-in fade-in"
+                >
+                  <div className="px-2 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tactical Barriers</div>
 
-                      <button
-                        onClick={() => { setToolMode('addDoor'); setShowObjectsMenu(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
-                          toolMode === 'addDoor' ? 'bg-amber-500/20 text-amber-300' : 'hover:bg-white/5 text-slate-300'
-                        }`}
-                      >
-                        <DoorClosed size={12} className="text-amber-400" />
-                        <span>Place Door</span>
-                      </button>
+                  <button
+                    onClick={() => { setToolMode('addWall'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addWall' ? 'bg-amber-500/20 text-amber-300 font-bold' : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <span className="w-3 h-3 rounded-sm bg-yellow-400 border border-yellow-200" />
+                    <span>Walls (Yellow Barrier)</span>
+                  </button>
 
-                      <button
-                        onClick={() => { setToolMode('addSecretDoor'); setShowObjectsMenu(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
-                          toolMode === 'addSecretDoor' ? 'bg-red-500/20 text-red-300 font-bold' : 'hover:bg-white/5 text-red-400'
-                        }`}
-                      >
-                        <Lock size={12} className="text-red-400" />
-                        <span>Secret Door (DM Only)</span>
-                      </button>
+                  <button
+                    onClick={() => { setToolMode('addWindow'); setLineStartPoint(null); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addWindow' ? 'bg-sky-500/20 text-sky-300 font-bold' : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <span className="w-3 h-3 rounded-sm bg-sky-400 border border-sky-200 shadow-[0_0_6px_rgba(56,189,248,0.8)]" />
+                    <span>Windows (Bright Blue)</span>
+                  </button>
 
-                      <button
-                        onClick={() => { setToolMode('addChest'); setShowObjectsMenu(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
-                          toolMode === 'addChest' ? 'bg-amber-500/20 text-amber-300' : 'hover:bg-white/5 text-slate-300'
-                        }`}
-                      >
-                        <ChestIcon size={14} className="shrink-0" />
-                        <span>Treasure Chest</span>
-                      </button>
+                  <button
+                    onClick={() => { setToolMode('addDoor'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addDoor' ? 'bg-amber-500/20 text-amber-300' : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <DoorClosed size={13} className="text-amber-400" />
+                    <span>Place Door</span>
+                  </button>
 
-                      <button
-                        onClick={() => { setToolMode('addSecretChest'); setShowObjectsMenu(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
-                          toolMode === 'addSecretChest' ? 'bg-red-500/20 text-red-300 font-bold' : 'hover:bg-white/5 text-red-400'
-                        }`}
-                      >
-                        <ChestIcon size={14} className="shrink-0" />
-                        <span>Hidden Chest (DM Only)</span>
-                      </button>
+                  <button
+                    onClick={() => { setToolMode('addSecretDoor'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addSecretDoor' ? 'bg-red-500/20 text-red-300 font-bold' : 'hover:bg-white/5 text-red-400'
+                    }`}
+                  >
+                    <Lock size={13} className="text-red-400" />
+                    <span>Secret Door (DM Only)</span>
+                  </button>
 
-                      <button
-                        onClick={() => { setToolMode('addTable'); setShowObjectsMenu(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
-                          toolMode === 'addTable' ? 'bg-amber-500/20 text-amber-300' : 'hover:bg-white/5 text-slate-300'
-                        }`}
-                      >
-                        <span className="text-xs">🪑</span>
-                        <span>Table / Cover</span>
-                      </button>
+                  <div className="h-px bg-white/5 my-1" />
+                  <div className="px-2 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Restricted Zones (DM Only)</div>
 
-                      <div className="h-px bg-white/5 my-0.5" />
+                  <button
+                    onClick={() => { setToolMode('addBlockerCircle'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addBlockerCircle' ? 'bg-red-500/20 text-red-300 font-bold' : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <span className="w-3 h-3 rounded-full border-2 border-red-400 bg-red-500/30" />
+                    <span>Restricted Circle (&gt;50% Rule)</span>
+                  </button>
 
-                      <button
-                        onClick={() => { setToolMode('eraseObstacle'); setShowObjectsMenu(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
-                          toolMode === 'eraseObstacle' ? 'bg-red-500/20 text-red-300' : 'hover:bg-white/5 text-red-300'
-                        }`}
-                      >
-                        <Eraser size={12} className="text-red-400" />
-                        <span>Drag-to-Erase</span>
-                      </button>
-                    </div>
-                  )}
+                  <button
+                    onClick={() => { setToolMode('addBlockerBox'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addBlockerBox' ? 'bg-orange-500/20 text-orange-300 font-bold' : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <Square size={13} className="text-orange-400" />
+                    <span>Restricted Square / Cube</span>
+                  </button>
+
+                  <div className="h-px bg-white/5 my-1" />
+                  <div className="px-2 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Props & Items</div>
+
+                  <button
+                    onClick={() => { setToolMode('addChest'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addChest' ? 'bg-amber-500/20 text-amber-300' : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <ChestIcon size={14} className="shrink-0" />
+                    <span>Treasure Chest</span>
+                  </button>
+
+                  <button
+                    onClick={() => { setToolMode('addSecretChest'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addSecretChest' ? 'bg-red-500/20 text-red-300 font-bold' : 'hover:bg-white/5 text-red-400'
+                    }`}
+                  >
+                    <ChestIcon size={14} className="shrink-0" />
+                    <span>Hidden Chest (DM Only)</span>
+                  </button>
+
+                  <button
+                    onClick={() => { setToolMode('addTable'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'addTable' ? 'bg-amber-500/20 text-amber-300' : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <span className="text-xs">🪑</span>
+                    <span>Table / Cover</span>
+                  </button>
+
+                  <div className="h-px bg-white/5 my-1" />
+
+                  <button
+                    onClick={() => { setToolMode('eraseObstacle'); setShowObjectsMenu(false); }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors ${
+                      toolMode === 'eraseObstacle' ? 'bg-red-500/20 text-red-300 font-bold' : 'hover:bg-white/5 text-red-300'
+                    }`}
+                  >
+                    <Eraser size={13} className="text-red-400" />
+                    <span>Click to Erase Any Object</span>
+                  </button>
+                </div>
+              )}
                 </div>
               )}
 
@@ -1927,7 +2267,7 @@ export const MapView: React.FC = () => {
                       <button
                         onClick={() => setSnapToGrid(!snapToGrid)}
                         className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-xs font-semibold transition-colors ${
-                          snapToGrid ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-white/5 text-slate-400'
+                          snapToGrid ? 'bg-amber-500/20 text-amber-300 border border-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.9)]' : 'bg-white/5 text-slate-400'
                         }`}
                       >
                         <span className="flex items-center gap-1.5"><Magnet size={12} /> Grid Snap</span>
@@ -2081,7 +2421,7 @@ export const MapView: React.FC = () => {
                                   setRosterContextMenu({ x: e.clientX, y: e.clientY, template });
                                 }}
                                 onClick={() => handleDeploySavedTemplate(template)}
-                                className="p-1.5 rounded-lg bg-white/5 hover:bg-amber-500/25 border border-white/5 hover:border-amber-500/40 flex items-center justify-between text-left transition-colors cursor-pointer group"
+                                className="p-1.5 rounded-lg bg-white/5 hover:bg-amber-500/25 border border-white/5 hover:border-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.9)] flex items-center justify-between text-left transition-colors cursor-pointer group"
                                 title="Left-click to spawn, Right-click to remove"
                               >
                                 <div className="flex items-center gap-2 overflow-hidden">
@@ -2504,7 +2844,7 @@ export const MapView: React.FC = () => {
       )}
 
       {/* TOKEN INSPECTOR & SIGHT DRAWER */}
-      {selectedToken && isTactical && (
+      {selectedToken && isTactical && isTokenDrawerOpen && (
         <div className="absolute top-16 right-6 z-30 p-4 rounded-2xl bg-[#121824]/95 border border-white/10 shadow-2xl backdrop-blur-md flex flex-col gap-3 text-xs w-84 animate-in fade-in max-h-[85vh] overflow-y-auto">
           <div className="flex items-center justify-between pb-2 border-b border-white/5">
             <div className="flex items-center gap-2">
@@ -2522,7 +2862,7 @@ export const MapView: React.FC = () => {
               )}
               <span className="font-bold text-slate-200">Token Controls</span>
             </div>
-            <button onClick={() => setSelectedTokenId(null)} className="text-slate-500 hover:text-white">
+            <button onClick={() => { setSelectedTokenId(null); setIsTokenDrawerOpen(false); }} className="text-slate-500 hover:text-white">
               <X size={13} />
             </button>
           </div>
@@ -2813,7 +3153,7 @@ export const MapView: React.FC = () => {
             className={`w-full py-1.5 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-colors ${
               vaultSaveSuccess 
                 ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/30' 
-                : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.9)]'
             }`}
           >
             {vaultSaveSuccess ? (
@@ -3126,7 +3466,7 @@ export const MapView: React.FC = () => {
                   y1={`${activeRuler.startY}%`}
                   x2={`${activeRuler.endX}%`}
                   y2={`${activeRuler.endY}%`}
-                  stroke="#f59e0b"
+                  stroke="#fde047"
                   strokeWidth="3"
                   strokeDasharray="6 4"
                 />
@@ -3136,7 +3476,7 @@ export const MapView: React.FC = () => {
                   x={`${(activeRuler.startX + activeRuler.endX) / 2}%`}
                   y={`${(activeRuler.startY + activeRuler.endY) / 2}%`}
                   fill="#ffffff"
-                  stroke="#000000"
+                  stroke="#facc15"
                   strokeWidth="2"
                   paintOrder="stroke fill"
                   fontSize="12"
@@ -3148,6 +3488,358 @@ export const MapView: React.FC = () => {
                 </text>
               </svg>
             )}
+
+            {/* VECTOR OBSTACLES: SVG Thin Walls, Doors & Windows */}
+            {isTactical && (
+              <svg className="absolute inset-0 w-full h-full pointer-events-none z-25 overflow-visible">
+                <defs>
+                  <filter id="wallGlow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="0" stdDeviation="2.5" floodColor="#facc15" floodOpacity="0.95"/>
+                  </filter>
+                  <filter id="secretGlow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="0" stdDeviation="1.5" floodColor="#ef4444" floodOpacity="0.8"/>
+                  </filter>
+                  <filter id="windowGlow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="#38bdf8" floodOpacity="0.95"/>
+                  </filter>
+                </defs>
+
+                {(activeMap.obstacles || []).map(obs => {
+                  if (obs.x1 === undefined || obs.y1 === undefined || obs.x2 === undefined || obs.y2 === undefined) {
+                    return null;
+                  }
+
+                  const midX = (obs.x1 + obs.x2) / 2;
+                  const midY = (obs.y1 + obs.y2) / 2;
+
+                  if (obs.type === 'wall') {
+                    return (
+                      <g key={obs.id} className="pointer-events-auto group cursor-pointer">
+                        <line
+                          x1={`${obs.x1}%`}
+                          y1={`${obs.y1}%`}
+                          x2={`${obs.x2}%`}
+                          y2={`${obs.y2}%`}
+                          stroke="#facc15"
+                          strokeWidth="7"
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1={`${obs.x1}%`}
+                          y1={`${obs.y1}%`}
+                          x2={`${obs.x2}%`}
+                          y2={`${obs.y2}%`}
+                          stroke="#facc15"
+                          strokeWidth="3.5"
+                          strokeLinecap="round"
+                          filter="url(#wallGlow)"
+                          className="group-hover:stroke-red-400 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (toolMode === 'eraseObstacle' || toolMode === 'select') {
+                              deleteObstacleFromMap(activeMap.id, obs.id);
+                              recalculateAllPlayerVision();
+                            }
+                          }}
+                        />
+                      </g>
+                    );
+                  }
+
+                  if (obs.type === 'window') {
+                    return (
+                      <g key={obs.id} className="pointer-events-auto group cursor-pointer">
+                        <line
+                          x1={`${obs.x1}%`}
+                          y1={`${obs.y1}%`}
+                          x2={`${obs.x2}%`}
+                          y2={`${obs.y2}%`}
+                          stroke="#38bdf8"
+                          strokeWidth="3.5"
+                          strokeDasharray="4 3"
+                          strokeLinecap="round"
+                          filter="url(#windowGlow)"
+                          className="group-hover:stroke-red-400 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteObstacleFromMap(activeMap.id, obs.id);
+                            recalculateAllPlayerVision();
+                          }}
+                        />
+                      </g>
+                    );
+                  }
+
+                  if (obs.type === 'door') {
+                    return (
+                      <g key={obs.id} className="pointer-events-auto">
+                        <line
+                          x1={`${obs.x1}%`}
+                          y1={`${obs.y1}%`}
+                          x2={`${obs.x2}%`}
+                          y2={`${obs.y2}%`}
+                          stroke={obs.isOpen ? "#10b981" : (obs.isSecret ? "#ef4444" : "#b45309")}
+                          strokeWidth="4"
+                          strokeDasharray={obs.isSecret ? "5 3" : undefined}
+                          strokeLinecap="round"
+                          className="cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (toolMode === 'eraseObstacle') {
+                              deleteObstacleFromMap(activeMap.id, obs.id);
+                            } else {
+                              toggleDoorState(activeMap.id, obs.id);
+                            }
+                            recalculateAllPlayerVision();
+                          }}
+                        />
+
+                        {/* Interactive Door Midpoint Badge Handle */}
+                        <foreignObject
+                          x={`calc(${midX}% - 12px)`}
+                          y={`calc(${midY}% - 12px)`}
+                          width="24"
+                          height="24"
+                          className="overflow-visible"
+                        >
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (toolMode === 'eraseObstacle') {
+                                deleteObstacleFromMap(activeMap.id, obs.id);
+                              } else {
+                                toggleDoorState(activeMap.id, obs.id);
+                              }
+                              recalculateAllPlayerVision();
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleObstacleSecret(activeMap.id, obs.id);
+                            }}
+                            className={`w-6 h-6 rounded-full border flex items-center justify-center cursor-pointer shadow-lg transition-transform hover:scale-125 ${
+                              obs.isOpen 
+                                ? 'bg-emerald-600/90 border-emerald-300 text-white' 
+                                : obs.isSecret 
+                                ? 'bg-red-600/90 border-white text-white ring-2 ring-red-400' 
+                                : 'bg-amber-700/90 border-amber-300 text-amber-100'
+                            }`}
+                            title={
+                              obs.isSecret 
+                                ? "Secret Door (Click to swing open/shut, right-click to reveal)" 
+                                : "Door (Click to swing open/shut, right-click to make secret)"
+                            }
+                          >
+                            {obs.isOpen ? (
+                              <DoorOpen size={12} />
+                            ) : (
+                              <DoorClosed size={12} className={obs.isSecret ? "text-red-200" : "text-amber-200"} />
+                            )}
+                          </div>
+                        </foreignObject>
+                      </g>
+                    );
+                  }
+
+                  return null;
+                })}
+
+                {/* Live Vector Rubber-Banding Preview Line */}
+                {lineStartPoint && currentMousePos && (
+                  <line
+                    x1={`${lineStartPoint.x}%`}
+                    y1={`${lineStartPoint.y}%`}
+                    x2={`${currentMousePos.x}%`}
+                    y2={`${currentMousePos.y}%`}
+                    stroke={
+                      toolMode === 'addWall' ? '#facc15' :
+                      toolMode === 'addWindow' ? '#38bdf8' :
+                      toolMode === 'addSecretDoor' ? '#ef4444' : '#10b981'
+                    }
+                    strokeWidth="3.5"
+                    strokeDasharray="4 2"
+                    strokeLinecap="round"
+                    className="animate-pulse"
+                  />
+                )}
+              </svg>
+            )}
+
+            
+              {/* SVG Layer for DM Restricted Area Shapes */}
+              <svg className="absolute inset-0 w-full h-full pointer-events-none z-22 overflow-visible">
+                
+              {/* Pattern definition for DM Fog Red Shroud */}
+              <defs>
+                <pattern id="redFogDots" width="8" height="8" patternUnits="userSpaceOnUse">
+                  <circle cx="2" cy="2" r="1" fill="#ef4444" opacity="0.45" />
+                  <circle cx="6" cy="6" r="1" fill="#dc2626" opacity="0.3" />
+                </pattern>
+                <filter id="crimsonGlow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="0" stdDeviation="2.5" floodColor="#dc2626" floodOpacity="0.8"/>
+                </filter>
+              </defs>
+
+
+                {/* Render Placed Shape Blockers */}
+                {(activeMap.obstacles || []).map((obs: any) => {
+                  if (obs.shapeType === 'circle' && obs.circleR) {
+                    return (
+                      <g key={obs.id}>
+                        {/* Red Fog Translucent Fill */}
+                        <circle
+                          cx={`${obs.circleX}%`}
+                          cy={`${obs.circleY}%`}
+                          r={`${obs.circleR}%`}
+                          fill="rgba(185, 28, 28, 0.45)"
+                          className={toolMode === 'eraseObstacle' ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (toolMode === 'eraseObstacle' || toolMode === 'select') {
+                              deleteObstacleFromMap(activeMap.id, obs.id);
+                            }
+                          }}
+                        />
+                        {/* Dot Matrix Fog Overlay */}
+                        <circle
+                          cx={`${obs.circleX}%`}
+                          cy={`${obs.circleY}%`}
+                          r={`${obs.circleR}%`}
+                          fill="url(#redFogDots)"
+                          className={toolMode === 'eraseObstacle' ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (toolMode === 'eraseObstacle' || toolMode === 'select') {
+                              deleteObstacleFromMap(activeMap.id, obs.id);
+                            }
+                          }}
+                        />
+                        {/* Perimeter Barrier */}
+                        <circle
+                          cx={`${obs.circleX}%`}
+                          cy={`${obs.circleY}%`}
+                          r={`${obs.circleR}%`}
+                          fill="none"
+                          stroke="#ef4444"
+                          strokeWidth="3.5"
+                          strokeDasharray="5 3"
+                          filter="url(#crimsonGlow)"
+                          className="pointer-events-auto cursor-pointer hover:stroke-yellow-300 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (toolMode === 'eraseObstacle' || toolMode === 'select') {
+                              deleteObstacleFromMap(activeMap.id, obs.id);
+                            }
+                          }}
+                        >
+                          <title>Restricted Circle (Click with Eraser to remove)</title>
+                        </circle>
+                      </g>
+                    );
+                  }
+
+                  if (obs.shapeType === 'box' && obs.boxW) {
+                    return (
+                      <g key={obs.id}>
+                        <rect
+                          x={`${obs.boxX}%`}
+                          y={`${obs.boxY}%`}
+                          width={`${obs.boxW}%`}
+                          height={`${obs.boxH}%`}
+                          fill="rgba(185, 28, 28, 0.45)"
+                          className={toolMode === 'eraseObstacle' ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (toolMode === 'eraseObstacle' || toolMode === 'select') {
+                              deleteObstacleFromMap(activeMap.id, obs.id);
+                            }
+                          }}
+                        />
+                        <rect
+                          x={`${obs.boxX}%`}
+                          y={`${obs.boxY}%`}
+                          width={`${obs.boxW}%`}
+                          height={`${obs.boxH}%`}
+                          fill="url(#redFogDots)"
+                          className={toolMode === 'eraseObstacle' ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (toolMode === 'eraseObstacle' || toolMode === 'select') {
+                              deleteObstacleFromMap(activeMap.id, obs.id);
+                            }
+                          }}
+                        />
+                        <rect
+                          x={`${obs.boxX}%`}
+                          y={`${obs.boxY}%`}
+                          width={`${obs.boxW}%`}
+                          height={`${obs.boxH}%`}
+                          fill="none"
+                          stroke="#ef4444"
+                          strokeWidth="3.5"
+                          strokeDasharray="5 3"
+                          filter="url(#crimsonGlow)"
+                          className="pointer-events-auto cursor-pointer hover:stroke-yellow-300 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (toolMode === 'eraseObstacle' || toolMode === 'select') {
+                              deleteObstacleFromMap(activeMap.id, obs.id);
+                            }
+                          }}
+                        >
+                          <title>Restricted Square (Click with Eraser to remove)</title>
+                        </rect>
+                      </g>
+                    );
+                  }
+                  return null;
+                })}
+
+                {/* Live Drawing Preview */}
+                {blockerShapeStart && currentDragPos && toolMode === 'addBlockerCircle' && (
+                  <g>
+                    <circle
+                      cx={`${blockerShapeStart.x}%`}
+                      cy={`${blockerShapeStart.y}%`}
+                      r={`${Math.hypot(currentDragPos.x - blockerShapeStart.x, currentDragPos.y - blockerShapeStart.y)}%`}
+                      fill="rgba(220, 38, 38, 0.4)"
+                    />
+                    <circle
+                      cx={`${blockerShapeStart.x}%`}
+                      cy={`${blockerShapeStart.y}%`}
+                      r={`${Math.hypot(currentDragPos.x - blockerShapeStart.x, currentDragPos.y - blockerShapeStart.y)}%`}
+                      fill="none"
+                      stroke="#ef4444"
+                      strokeWidth="2.5"
+                      strokeDasharray="4 2"
+                      className="animate-pulse"
+                    />
+                  </g>
+                )}
+
+                {blockerShapeStart && currentDragPos && toolMode === 'addBlockerBox' && (
+                  <g>
+                    <rect
+                      x={`${Math.min(blockerShapeStart.x, currentDragPos.x)}%`}
+                      y={`${Math.min(blockerShapeStart.y, currentDragPos.y)}%`}
+                      width={`${Math.abs(currentDragPos.x - blockerShapeStart.x)}%`}
+                      height={`${Math.abs(currentDragPos.y - blockerShapeStart.y)}%`}
+                      fill="rgba(220, 38, 38, 0.4)"
+                    />
+                    <rect
+                      x={`${Math.min(blockerShapeStart.x, currentDragPos.x)}%`}
+                      y={`${Math.min(blockerShapeStart.y, currentDragPos.y)}%`}
+                      width={`${Math.abs(currentDragPos.x - blockerShapeStart.x)}%`}
+                      height={`${Math.abs(currentDragPos.y - blockerShapeStart.y)}%`}
+                      fill="none"
+                      stroke="#ef4444"
+                      strokeWidth="2.5"
+                      strokeDasharray="4 2"
+                      className="animate-pulse"
+                    />
+                  </g>
+                )}
+              </svg>
 
             {/* TACTICAL OBSTACLES */}
             {isTactical && (activeMap.obstacles || []).map(obs => {
@@ -3164,15 +3856,15 @@ export const MapView: React.FC = () => {
                       recalculateAllPlayerVision();
                     }}
                     style={{
-                      left: `${obs.col * cellW}%`,
-                      top: `${obs.row * cellH}%`,
+                      left: `${(obs.col ?? 0) * cellW}%`,
+                      top: `${(obs.row ?? 0) * cellH}%`,
                       width: `${cellW}%`,
                       height: `${cellH}%`
                     }}
-                    className="absolute bg-slate-900/90 border border-amber-500/40 z-25 flex items-center justify-center cursor-pointer hover:border-red-400 group"
-                    title="Solid Wall (Click or drag eraser to remove)"
+                    className="absolute bg-yellow-400/90 border-2 border-yellow-200 shadow-[0_0_12px_rgba(250,204,21,0.8)] z-25 flex items-center justify-center cursor-pointer hover:border-red-500 group"
+                    title="Wall (Click with Eraser tool to delete)"
                   >
-                    <span className="text-[9px] text-amber-400/80 font-bold group-hover:hidden">WALL</span>
+                    <span className="text-[10px] text-black font-extrabold group-hover:hidden tracking-wider">WALL</span>
                     <Trash2 size={10} className="text-red-400 hidden group-hover:block" />
                   </div>
                 );
@@ -3197,8 +3889,8 @@ export const MapView: React.FC = () => {
                       toggleObstacleSecret(activeMap.id, obs.id);
                     }}
                     style={{
-                      left: `${obs.col * cellW}%`,
-                      top: `${obs.row * cellH}%`,
+                      left: `${(obs.col ?? 0) * cellW}%`,
+                      top: `${(obs.row ?? 0) * cellH}%`,
                       width: `${cellW}%`,
                       height: `${cellH}%`
                     }}
@@ -3241,8 +3933,8 @@ export const MapView: React.FC = () => {
                       toggleObstacleSecret(activeMap.id, obs.id);
                     }}
                     style={{
-                      left: `${obs.col * cellW}%`,
-                      top: `${obs.row * cellH}%`,
+                      left: `${(obs.col ?? 0) * cellW}%`,
+                      top: `${(obs.row ?? 0) * cellH}%`,
                       width: `${cellW}%`,
                       height: `${cellH}%`
                     }}
@@ -3271,8 +3963,8 @@ export const MapView: React.FC = () => {
                       }
                     }}
                     style={{
-                      left: `${obs.col * cellW}%`,
-                      top: `${obs.row * cellH}%`,
+                      left: `${(obs.col ?? 0) * cellW}%`,
+                      top: `${(obs.row ?? 0) * cellH}%`,
                       width: `${cellW}%`,
                       height: `${cellH}%`
                     }}

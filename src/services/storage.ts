@@ -22,16 +22,56 @@ export interface Folder {
   id: string;
   worldId: string;
   name: string;
-  category: 'character' | 'location' | 'faction' | 'item' | 'lore';
+  category: 'character' | 'location' | 'faction' | 'item' | 'lore' | 'cards' | 'general';
+  createdAt?: number;
   parentId?: string;
 }
+
+export interface StatblockData {
+  armorClass: number;
+  hitPoints: number;
+  hitDice: string;
+  speed: string;
+  proficiencyBonus: number;
+  abilities: {
+    str: number;
+    dex: number;
+    con: number;
+    int: number;
+    wis: number;
+    cha: number;
+  };
+  actions: {
+    id: string;
+    name: string;
+    type: 'melee' | 'ranged' | 'spell' | 'special';
+    toHit: number;
+    damageDice: string;
+    description: string;
+  }[];
+}
+
+export interface CardBlock {
+  id: string;
+  title: string;
+  content: string;
+  placeholder?: string;
+  width?: 'full' | 'half';
+  blockType: 'text' | 'statblock';
+  collapsed?: boolean;
+  statblock?: StatblockData;
+}
+
+export type EntityType = 'character' | 'location' | 'faction' | 'item' | 'lore' | 'monster' | 'npc';
 
 export interface Card {
   id: string;
   worldId: string;
   folderId?: string;
   name: string;
-  type: 'character' | 'location' | 'faction' | 'item' | 'lore';
+  type: 'character' | 'location' | 'faction' | 'item' | 'lore' | 'monster' | 'npc' | 'quest';
+  sectionCategory?: string;
+  imageUrl?: string;
   aliases: string[];
   content: string;
   tags: string[];
@@ -64,6 +104,7 @@ export interface MapZone {
   label: string;
   color?: string;
   isSecret?: boolean;
+  isDifficultTerrain?: boolean;
 }
 
 export type SightType = 'normal' | 'darkvision' | 'blindsight' | 'truesight';
@@ -110,14 +151,22 @@ export interface SavedTokenTemplate {
   conditions?: string[];
 }
 
-export type ObstacleType = 'wall' | 'door' | 'chest' | 'table';
+export type ObstacleType = 'wall' | 'door' | 'window' | 'chest' | 'table' | 'block' | 'circle' | 'terrain';
 
 export interface MapObstacle {
   id: string;
   mapId: string;
   type: ObstacleType;
-  col: number;
-  row: number;
+  col?: number;
+  row?: number;
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+  cx?: number;
+  cy?: number;
+  radius?: number;
+  isDifficultTerrain?: boolean;
   isOpen?: boolean;
   isSecret?: boolean;
 }
@@ -157,7 +206,10 @@ export interface TimelineEvent {
   year: number;
   title: string;
   description: string;
-  category: 'major' | 'minor' | 'era_start';
+  category: 'major' | 'minor' | 'era_start' | 'battle' | 'treaty' | 'discovery' | 'cataclysm' | 'general';
+  era?: string;
+  month?: string;
+  day?: number;
   linkedCardIds?: string[];
   updatedAt: number;
 }

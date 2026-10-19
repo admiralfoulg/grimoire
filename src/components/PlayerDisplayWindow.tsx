@@ -1,24 +1,17 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { ProjectionService, type ProjectionPayload } from '../services/broadcast';
-import { Shield, Sparkles, Swords, UserCheck } from 'lucide-react';
+import { Shield, Swords, UserCheck } from 'lucide-react';
 
-const CONDITION_COLORS: Record<string, string> = {
-  Blinded: 'bg-zinc-700 text-zinc-100 border-zinc-500',
-  Charmed: 'bg-pink-700 text-pink-100 border-pink-500',
-  Concentrating: 'bg-blue-600 text-blue-100 border-blue-400',
-  Dead: 'bg-red-950 text-red-200 border-red-700',
-  Frightened: 'bg-amber-700 text-amber-100 border-amber-500',
-  Grappled: 'bg-orange-700 text-orange-100 border-orange-500',
-  Incapacitated: 'bg-purple-800 text-purple-100 border-purple-500',
-  Invisible: 'bg-cyan-800 text-cyan-100 border-cyan-400',
-  Paralyzed: 'bg-yellow-700 text-yellow-100 border-yellow-400',
-  Petrified: 'bg-stone-700 text-stone-100 border-stone-400',
-  Poisoned: 'bg-emerald-700 text-emerald-100 border-emerald-400',
-  Prone: 'bg-indigo-700 text-indigo-100 border-indigo-400',
-  Restrained: 'bg-teal-700 text-teal-100 border-teal-400',
-  Stunned: 'bg-violet-700 text-violet-100 border-violet-400',
-  Unconscious: 'bg-rose-900 text-rose-100 border-rose-600'
-};
+const ChestIcon: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <rect x="2.5" y="9" width="19" height="12" rx="1.5" fill="#8B4513" stroke="#D4AF37" strokeWidth="1.5"/>
+    <path d="M2.5 10C2.5 5.5 6 3 12 3C18 3 21.5 5.5 21.5 10H2.5Z" fill="#A0522D" stroke="#D4AF37" strokeWidth="1.5"/>
+    <line x1="7" y1="3.5" x2="7" y2="21" stroke="#D4AF37" strokeWidth="1.5"/>
+    <line x1="17" y1="3.5" x2="17" y2="21" stroke="#D4AF37" strokeWidth="1.5"/>
+    <line x1="2.5" y1="10" x2="21.5" y2="10" stroke="#222" strokeWidth="1"/>
+    <rect x="10.5" y="9" width="3" height="4" rx="0.5" fill="#FFD700" stroke="#B8860B" strokeWidth="0.8"/>
+  </svg>
+);
 
 export const PlayerDisplayWindow: React.FC = () => {
   const [payload, setPayload] = useState<ProjectionPayload>(ProjectionService.getPayload());
@@ -38,128 +31,15 @@ export const PlayerDisplayWindow: React.FC = () => {
   const getTokenDimensionsStyle = (size: 'medium' | 'large' | 'huge' = 'medium') => {
     const cellW = 100 / cols;
     const cellH = 100 / rows;
-
-    if (size === 'large') {
-      return {
-        width: `${cellW * 2}%`,
-        height: `${cellH * 2}%`,
-        fontSize: '11px'
-      };
-    } else if (size === 'huge') {
-      return {
-        width: `${cellW * 3}%`,
-        height: `${cellH * 3}%`,
-        fontSize: '13px'
-      };
-    } else {
-      return {
-        width: `${cellW * 0.95}%`,
-        height: `${cellH * 0.95}%`,
-        fontSize: '9px'
-      };
-    }
-  };
-
-  const renderPlayerAoEs = () => {
-    if (payload.type !== 'MAP') return null;
-
-    return (
-      <svg 
-        viewBox={`0 0 ${cols} ${rows}`} 
-        className="absolute inset-0 w-full h-full pointer-events-none z-35 overflow-visible"
-        preserveAspectRatio="none"
-      >
-        {(payload.tokens || []).map((token, idx) => {
-          const aoe = token.aoe;
-          if (!aoe || aoe.shape === 'none') return null;
-
-          const centerCellX = (token.x / 100) * cols;
-          const centerCellY = (token.y / 100) * rows;
-          const color = aoe.color || '#ef4444';
-          const radiusCells = aoe.radiusFt / 5;
-          const angleRad = ((aoe.angleDeg || 0) * Math.PI) / 180;
-
-          if (aoe.shape === 'circle') {
-            return (
-              <circle
-                key={`pl-aoe-${idx}`}
-                cx={centerCellX}
-                cy={centerCellY}
-                r={radiusCells}
-                fill={`${color}33`}
-                stroke={color}
-                strokeWidth={0.08}
-                strokeDasharray="0.3 0.2"
-                className="animate-pulse"
-              />
-            );
-          }
-
-          if (aoe.shape === 'cone') {
-            const halfAngle = 0.4636;
-            const a1 = angleRad - halfAngle;
-            const a2 = angleRad + halfAngle;
-
-            const p1X = centerCellX + Math.cos(a1) * radiusCells;
-            const p1Y = centerCellY + Math.sin(a1) * radiusCells;
-            const p2X = centerCellX + Math.cos(a2) * radiusCells;
-            const p2Y = centerCellY + Math.sin(a2) * radiusCells;
-
-            const d = `M ${centerCellX} ${centerCellY} L ${p1X} ${p1Y} A ${radiusCells} ${radiusCells} 0 0 1 ${p2X} ${p2Y} Z`;
-
-            return (
-              <path
-                key={`pl-aoe-${idx}`}
-                d={d}
-                fill={`${color}33`}
-                stroke={color}
-                strokeWidth={0.08}
-                strokeDasharray="0.3 0.2"
-                className="animate-pulse"
-              />
-            );
-          }
-
-          if (aoe.shape === 'line') {
-            const halfWidth = 0.5;
-            const perpAngle = angleRad + Math.PI / 2;
-
-            const wx = Math.cos(perpAngle) * halfWidth;
-            const wy = Math.sin(perpAngle) * halfWidth;
-
-            const dx = Math.cos(angleRad) * radiusCells;
-            const dy = Math.sin(angleRad) * radiusCells;
-
-            const pt1 = `${centerCellX - wx},${centerCellY - wy}`;
-            const pt2 = `${centerCellX + wx},${centerCellY + wy}`;
-            const pt3 = `${centerCellX + dx + wx},${centerCellY + dy + wy}`;
-            const pt4 = `${centerCellX + dx - wx},${centerCellY + dy - wy}`;
-
-            return (
-              <polygon
-                key={`pl-aoe-${idx}`}
-                points={`${pt1} ${pt2} ${pt3} ${pt4}`}
-                fill={`${color}33`}
-                stroke={color}
-                strokeWidth={0.08}
-                strokeDasharray="0.3 0.2"
-                className="animate-pulse"
-              />
-            );
-          }
-
-          return null;
-        })}
-      </svg>
-    );
+    if (size === 'large') return { width: `${cellW * 2}%`, height: `${cellH * 2}%`, fontSize: '11px' };
+    if (size === 'huge') return { width: `${cellW * 3}%`, height: `${cellH * 3}%`, fontSize: '13px' };
+    return { width: `${cellW * 0.95}%`, height: `${cellH * 0.95}%`, fontSize: '9px' };
   };
 
   return (
     <div className="w-screen h-screen bg-[#05080e] text-slate-100 flex flex-col items-center justify-center overflow-hidden select-none relative font-sans">
       
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,_rgba(245,158,11,0.03)_0%,_transparent_75%)]" />
-
-      {/* TOP INITIATIVE BANNER FOR PLAYERS */}
+      {/* TOP INITIATIVE BANNER */}
       {payload?.type === 'MAP' && combatTracker && combatTracker.combatants.length > 0 && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 p-1.5 rounded-2xl bg-black/85 backdrop-blur-md border border-white/15 shadow-2xl max-w-[92vw] overflow-x-auto">
           <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-red-500/20 text-red-300 font-bold text-xs uppercase tracking-wider shrink-0 border border-red-500/30">
@@ -174,22 +54,11 @@ export const PlayerDisplayWindow: React.FC = () => {
                 <div
                   key={c.id}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-xl transition-all border shrink-0 ${
-                    isActive
-                      ? 'bg-amber-500 text-black border-amber-300 font-extrabold shadow-lg shadow-amber-500/30 scale-105'
-                      : 'bg-white/5 border-white/5 text-slate-300 font-semibold text-xs'
+                    isActive ? 'bg-amber-500 text-black border-amber-300 font-extrabold shadow-lg scale-105' : 'bg-white/5 border-white/5 text-slate-300 font-semibold text-xs'
                   }`}
                 >
                   {isActive && <UserCheck size={12} className="text-black" />}
                   <span className="text-xs truncate max-w-[120px]">{c.name}</span>
-                  {c.conditions.length > 0 && (
-                    <div className="flex gap-0.5">
-                      {c.conditions.slice(0, 2).map((cond, condIdx) => (
-                        <span key={condIdx} className="px-1 text-[7px] font-bold rounded bg-black/60 text-white uppercase">
-                          {cond === 'Concentrating' ? 'CONC' : cond}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -197,42 +66,19 @@ export const PlayerDisplayWindow: React.FC = () => {
         </div>
       )}
 
-      {/* Live Table Indicator */}
       <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1 rounded-full bg-black/50 border border-white/10 backdrop-blur-md text-[11px] text-slate-400 z-40">
         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
         <span>Grimoire Live Table</span>
       </div>
 
       {(!payload || payload.type === 'CLEAR') && (
-        <div className="flex flex-col items-center gap-4 text-slate-600 animate-in fade-in duration-300">
+        <div className="flex flex-col items-center gap-4 text-slate-600">
           <div className="w-20 h-20 rounded-3xl bg-white/5 border border-white/5 flex items-center justify-center text-amber-500/30 shadow-2xl">
             <Shield size={38} />
           </div>
           <div className="text-center">
             <h2 className="text-xl font-bold text-slate-300 tracking-widest uppercase">Grimoire Player Display</h2>
-            <p className="text-xs text-slate-500 mt-1">Waiting for the Dungeon Master to project a scene, map, or portrait...</p>
-          </div>
-        </div>
-      )}
-
-      {payload?.type === 'IMAGE' && (
-        <div className="w-full h-full flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in-95 duration-200">
-          <div className="max-w-5xl max-h-[88vh] rounded-3xl overflow-hidden border border-white/10 shadow-2xl bg-black/60 flex flex-col items-center backdrop-blur-md">
-            <div className="flex-1 flex items-center justify-center overflow-hidden p-2">
-              <img 
-                src={payload.imageUrl} 
-                alt={payload.title} 
-                className="max-h-[76vh] w-auto max-w-full object-contain rounded-2xl shadow-xl"
-              />
-            </div>
-            <div className="w-full px-6 py-4 bg-[#0d121a]/95 border-t border-white/5 text-center">
-              <h3 className="text-lg font-bold text-amber-400 tracking-wide">{payload.title}</h3>
-              {payload.subtitle && (
-                <p className="text-xs text-slate-400 mt-0.5 tracking-wider uppercase font-semibold">
-                  {payload.subtitle}
-                </p>
-              )}
-            </div>
+            <p className="text-xs text-slate-500 mt-1">Waiting for Dungeon Master projection...</p>
           </div>
         </div>
       )}
@@ -243,21 +89,86 @@ export const PlayerDisplayWindow: React.FC = () => {
             <img 
               src={payload.imageUrl} 
               alt={payload.name} 
-              className="max-h-[92vh] max-w-[95vw] w-auto object-contain rounded-xl shadow-2xl"
+              style={{
+                filter: lighting === 'darkness' ? 'brightness(0.35) contrast(1.2) saturate(0.8)' : lighting === 'dim' ? 'brightness(0.7) contrast(1.1) sepia(0.2)' : 'none'
+              }}
+              className="max-h-[92vh] max-w-[95vw] w-auto object-contain rounded-xl shadow-2xl transition-[filter] duration-500"
             />
 
-            {/* Ambient Lighting Atmospheric Tint */}
-            {payload.mapType === 'tactical' && (
-              <div 
-                className={`absolute inset-0 pointer-events-none transition-colors duration-500 z-10 ${
-                  lighting === 'darkness'
-                    ? 'bg-indigo-950/60 mix-blend-multiply'
-                    : lighting === 'dim'
-                    ? 'bg-amber-950/30 mix-blend-multiply'
-                    : 'bg-transparent'
-                }`}
-              />
-            )}
+            {/* Projected Obstacles & Props */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none z-25 overflow-visible">
+              {(payload.obstacles || []).filter(o => !o.isSecret && o.type === 'block').map((obs, i) => {
+                if (obs.x1 === undefined || obs.y1 === undefined || obs.x2 === undefined || obs.y2 === undefined) return null;
+                return (
+                  <rect
+                    key={`p-block-${i}`}
+                    x={`${Math.min(obs.x1, obs.x2)}%`}
+                    y={`${Math.min(obs.y1, obs.y2)}%`}
+                    width={`${Math.abs(obs.x2 - obs.x1)}%`}
+                    height={`${Math.abs(obs.y2 - obs.y1)}%`}
+                    fill="#ef444455"
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                  />
+                );
+              })}
+
+              {(payload.obstacles || []).filter(o => !o.isSecret && o.type === 'circle').map((obs, i) => {
+                if (obs.cx === undefined || obs.cy === undefined || obs.radius === undefined) return null;
+                return (
+                  <circle
+                    key={`p-circle-${i}`}
+                    cx={`${obs.cx}%`}
+                    cy={`${obs.cy}%`}
+                    r={`${obs.radius}%`}
+                    fill="#a855f755"
+                    stroke="#a855f7"
+                    strokeWidth={2.5}
+                  />
+                );
+              })}
+
+              {(payload.obstacles || []).filter(o => !o.isSecret && (o.type === 'wall' || o.type === 'door' || o.type === 'window')).map((obs, i) => {
+                if (obs.x1 === undefined || obs.y1 === undefined || obs.x2 === undefined || obs.y2 === undefined) return null;
+                const isDoor = obs.type === 'door';
+                const isWindow = obs.type === 'window';
+                const strokeColor = isWindow ? '#38bdf8' : isDoor ? (obs.isOpen ? '#10b981' : '#f59e0b') : '#f59e0b';
+                return (
+                  <line
+                    key={`p-obs-${i}`}
+                    x1={`${obs.x1}%`}
+                    y1={`${obs.y1}%`}
+                    x2={`${obs.x2}%`}
+                    y2={`${obs.y2}%`}
+                    stroke={strokeColor}
+                    strokeWidth={isDoor || isWindow ? 5 : 4}
+                    strokeLinecap="round"
+                    strokeDasharray={isDoor && !obs.isOpen ? '6 4' : isWindow ? '2 2' : undefined}
+                  />
+                );
+              })}
+            </svg>
+
+            {/* Projected Tile Props (Chests & Tables) */}
+            {(payload.obstacles || []).filter(o => !o.isSecret && (o.type === 'chest' || o.type === 'table')).map((obs, i) => {
+              if (obs.col === undefined || obs.row === undefined) return null;
+              const cellW = 100 / cols;
+              const cellH = 100 / rows;
+              return (
+                <div
+                  key={`p-prop-${i}`}
+                  style={{
+                    left: `${obs.col * cellW}%`,
+                    top: `${obs.row * cellH}%`,
+                    width: `${cellW}%`,
+                    height: `${cellH}%`
+                  }}
+                  className="absolute z-25 flex items-center justify-center pointer-events-none"
+                >
+                  {obs.type === 'chest' ? <ChestIcon size={16} /> : <span className="text-xs">🪑</span>}
+                </div>
+              );
+            })}
 
             {/* PLAYER FOG OF WAR */}
             {payload.mapType === 'tactical' && fog?.enabled && (
@@ -267,76 +178,16 @@ export const PlayerDisplayWindow: React.FC = () => {
                     {Array.from({ length: cols }).map((_, c) => {
                       const isRevealed = revealedSet.has(`${c},${r}`);
                       if (isRevealed) return <div key={c} style={{ width: `${100 / cols}%` }} />;
-
-                      return (
-                        <div 
-                          key={c}
-                          style={{ width: `${100 / cols}%` }}
-                          className="bg-[#05080e]"
-                        />
-                      );
+                      return <div key={c} style={{ width: `${100 / cols}%` }} className="bg-[#05080e]" />;
                     })}
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Projected Active Token-Anchored AoE Spell Templates */}
-            {payload.mapType === 'tactical' && renderPlayerAoEs()}
-
-            {/* Projected Active Ruler Line */}
-            {payload.mapType === 'tactical' && payload.activeRuler && (
-              <svg className="absolute inset-0 w-full h-full pointer-events-none z-45">
-                <line
-                  x1={`${payload.activeRuler.startX}%`}
-                  y1={`${payload.activeRuler.startY}%`}
-                  x2={`${payload.activeRuler.endX}%`}
-                  y2={`${payload.activeRuler.endY}%`}
-                  stroke={payload.activeRuler.color || '#f59e0b'}
-                  strokeWidth="3"
-                  strokeDasharray="6 4"
-                />
-                <circle cx={`${payload.activeRuler.startX}%`} cy={`${payload.activeRuler.startY}%`} r="5" fill="#f59e0b" />
-                <circle cx={`${payload.activeRuler.endX}%`} cy={`${payload.activeRuler.endY}%`} r="5" fill="#f59e0b" />
-                <text
-                  x={`${(payload.activeRuler.startX + payload.activeRuler.endX) / 2}%`}
-                  y={`${(payload.activeRuler.startY + payload.activeRuler.endY) / 2}%`}
-                  fill="#ffffff"
-                  stroke="#000000"
-                  strokeWidth="2"
-                  paintOrder="stroke fill"
-                  fontSize="12"
-                  fontWeight="bold"
-                  textAnchor="middle"
-                  dy="-8"
-                >
-                  {payload.activeRuler.distanceFt} ft
-                </text>
-              </svg>
-            )}
-
-            {/* Projected Public World Pins */}
-            {payload.mapType === 'world' && (payload.pins || []).map((pin, idx) => (
-              <div
-                key={idx}
-                style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-                className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none z-20"
-              >
-                <div 
-                  style={{ backgroundColor: pin.color || '#f59e0b' }}
-                  className="w-3.5 h-3.5 rounded-full border border-white shadow-lg"
-                />
-                <span className="mt-1 px-1.5 py-0.5 rounded bg-black/85 border border-white/10 text-[9px] font-bold text-slate-100 whitespace-nowrap shadow-md">
-                  {pin.label}
-                </span>
-              </div>
-            ))}
-
-            {/* Projected Tokens with Conditions & Art */}
+            {/* Projected Tokens */}
             {payload.mapType === 'tactical' && (payload.tokens || []).map((token, idx) => {
               const dimensions = getTokenDimensionsStyle(token.size);
-              const isDead = (token.conditions || []).includes('Dead');
-
               return (
                 <div
                   key={idx}
@@ -346,73 +197,21 @@ export const PlayerDisplayWindow: React.FC = () => {
                     width: dimensions.width,
                     height: dimensions.height,
                     fontSize: dimensions.fontSize,
-                    backgroundColor: token.imageUrl ? 'transparent' : (token.color || '#ef4444'),
-                    borderColor: token.imageUrl ? (token.color || '#f59e0b') : '#ffffff'
+                    backgroundColor: token.imageUrl ? 'transparent' : (token.color || '#ef4444')
                   }}
-                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-2xl flex flex-col items-center justify-center pointer-events-none transition-all duration-100 overflow-visible z-40 ${
-                    isDead ? 'opacity-60 grayscale' : ''
-                  }`}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-2xl flex items-center justify-center z-40 overflow-hidden"
                 >
-                  <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center relative">
-                    {token.imageUrl ? (
-                      <img 
-                        src={token.imageUrl} 
-                        alt={token.name} 
-                        className="w-full h-full object-cover rounded-full"
-                      />
-                    ) : (
-                      <span className="font-bold text-white uppercase truncate px-1">
-                        {token.name.substring(0, 2)}
-                      </span>
-                    )}
-
-                    {/* Red X over dead tokens */}
-                    {isDead && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-red-500 font-extrabold text-lg select-none">
-                        ✕
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Overhead Conditions Stack */}
-                  {(token.conditions || []).length > 0 && (
-                    <div className="absolute -top-4 flex items-center gap-0.5 flex-wrap justify-center pointer-events-none z-50">
-                      {token.conditions!.slice(0, 3).map((cond, cIdx) => (
-                        <span 
-                          key={cIdx} 
-                          className={`px-1 py-0.2 rounded text-[7px] font-bold border uppercase leading-tight ${
-                            CONDITION_COLORS[cond] || 'bg-slate-800 text-slate-200 border-slate-600'
-                          }`}
-                        >
-                          {cond === 'Concentrating' ? 'CONC' : cond}
-                        </span>
-                      ))}
-                      {token.conditions!.length > 3 && (
-                        <span className="px-0.5 text-[6px] font-bold bg-black text-amber-300 rounded border border-amber-500">
-                          +{token.conditions!.length - 3}
-                        </span>
-                      )}
-                    </div>
+                  {token.imageUrl ? (
+                    <img src={token.imageUrl} alt={token.name} className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    <span className="font-bold text-white uppercase">{token.name.substring(0, 2)}</span>
                   )}
-
-                  <span className="absolute -bottom-5 px-1.5 py-0.5 rounded bg-black/85 border border-white/10 text-[8px] font-bold text-slate-100 whitespace-nowrap shadow-md">
-                    {token.name}
-                  </span>
                 </div>
               );
             })}
           </div>
-
-          <div className="absolute bottom-6 left-6 px-4 py-2 rounded-2xl bg-black/80 backdrop-blur-md border border-white/10 flex items-center gap-2.5 shadow-2xl z-40">
-            <Sparkles size={15} className="text-amber-400" />
-            <span className="text-sm font-bold text-slate-200">{payload.name}</span>
-            <span className="text-[10px] text-slate-400 uppercase font-mono px-2 py-0.5 rounded-md bg-white/5 border border-white/5">
-              {payload.mapType === 'tactical' ? `${lighting?.toUpperCase()} LIGHT` : 'World Map'}
-            </span>
-          </div>
         </div>
       )}
-
     </div>
   );
 };

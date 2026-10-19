@@ -6,8 +6,7 @@ import {
   Plus, 
   Trash2, 
   Edit3,
-  ExternalLink, 
-  Sun
+  ExternalLink
 } from 'lucide-react';
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -18,34 +17,23 @@ const CATEGORY_COLORS: Record<string, string> = {
   general: '#f59e0b'
 };
 
-const MOON_PHASES = [
-  '🌑 New Moon',
-  '🌒 Waxing Crescent',
-  '🌓 First Quarter',
-  '🌔 Waxing Gibbous',
-  '🌕 Full Moon',
-  '🌖 Waning Gibbous',
-  '🌗 Last Quarter',
-  '🌘 Waning Crescent'
-];
-
 export const TimelineView: React.FC = () => {
   const { 
-    events, 
-    currentWorld, 
-    cards, 
+    events = [], 
+    cards = [], 
     createEvent, 
     updateEvent,
     deleteEvent, 
-    setActiveCard,
-    advanceDay
+    setActiveCard
   } = useGrimoireStore();
+
+  const safeEvents = Array.isArray(events) ? events : [];
+  const safeCards = Array.isArray(cards) ? cards : [];
 
   const [activeEra, setActiveEra] = useState<string>('all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
 
-  // Form State
   const [title, setTitle] = useState('');
   const [era, setEra] = useState('First Age');
   const [year, setYear] = useState<number>(300);
@@ -54,21 +42,10 @@ export const TimelineView: React.FC = () => {
   const [category, setCategory] = useState<'battle' | 'treaty' | 'discovery' | 'cataclysm' | 'general'>('general');
   const [linkedCardId, setLinkedCardId] = useState('');
 
-  const cal = currentWorld?.calendar;
-  const currentMonth = cal ? cal.months[cal.currentMonthIndex] : null;
-
-  const getMoonPhase = (cycleDays: number) => {
-    if (!cal) return MOON_PHASES[4];
-    const totalDays = (cal.currentYear * 300) + (cal.currentMonthIndex * 30) + cal.currentDay;
-    const progress = (totalDays % cycleDays) / cycleDays;
-    const phaseIdx = Math.floor(progress * 8) % 8;
-    return MOON_PHASES[phaseIdx];
-  };
-
-  const eras = Array.from(new Set(events.map(e => e.era)));
+  const eras = Array.from(new Set(safeEvents.map(e => e.era || 'Common Era')));
   const filteredEvents = activeEra === 'all' 
-    ? events 
-    : events.filter(e => e.era.toLowerCase() === activeEra.toLowerCase());
+    ? safeEvents 
+    : safeEvents.filter(e => (e.era || '').toLowerCase() === activeEra.toLowerCase());
 
   const resetForm = () => {
     setTitle('');
@@ -80,20 +57,6 @@ export const TimelineView: React.FC = () => {
     setLinkedCardId('');
     setEditingEventId(null);
     setIsFormOpen(false);
-  };
-
-  const handleOpenAddForm = () => {
-    resetForm();
-    setIsFormOpen(true);
-  };
-
-  const handleAddEventForCurrentDate = () => {
-    resetForm();
-    if (cal && currentMonth) {
-      setYear(cal.currentYear);
-      setMonth(`${currentMonth.name} ${cal.currentDay}`);
-    }
-    setIsFormOpen(true);
   };
 
   const handleStartEdit = (evt: TimelineEvent) => {
@@ -113,7 +76,7 @@ export const TimelineView: React.FC = () => {
     if (!title.trim()) return;
 
     if (editingEventId) {
-      const existing = events.find(ev => ev.id === editingEventId);
+      const existing = safeEvents.find(ev => ev.id === editingEventId);
       if (existing) {
         updateEvent({
           ...existing,
@@ -143,68 +106,13 @@ export const TimelineView: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0a0d13] text-slate-200 overflow-hidden select-none font-sans">
-      
-      {/* Top Chronicles & Calendar Header */}
-      <div className="h-16 px-8 border-b border-white/5 bg-[#121620]/90 backdrop-blur-md flex items-center justify-between shrink-0">
+      <div className="h-14 px-8 border-b border-white/5 bg-[#121620]/90 backdrop-blur-md flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
           <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-            <CalendarIcon size={14} /> World Chronicles
+            <CalendarIcon size={14} /> World Chronicles & Eras
           </span>
-
-          {/* Active Planetary Date Badge with inline + Button */}
-          {cal && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs">
-              <Sun size={13} className="text-amber-400" />
-              <span className="font-semibold text-slate-100">
-                Year {cal.currentYear}, {currentMonth?.name} {cal.currentDay}
-              </span>
-              
-              <button
-                onClick={handleAddEventForCurrentDate}
-                className="w-5 h-5 rounded-md bg-amber-500/20 hover:bg-amber-500/35 text-amber-400 flex items-center justify-center font-bold text-xs transition-colors border border-amber-500/30 ml-0.5"
-                title="Add event for this specific date"
-              >
-                <Plus size={11} />
-              </button>
-
-              <div className="flex items-center gap-1 ml-2 pl-2 border-l border-white/10">
-                <button
-                  onClick={() => advanceDay(1)}
-                  className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[10px] text-slate-300 font-mono transition-colors"
-                  title="Advance 1 Day"
-                >
-                  +1 Day
-                </button>
-                <button
-                  onClick={() => advanceDay(7)}
-                  className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[10px] text-amber-400 font-mono transition-colors"
-                  title="Advance 1 Week"
-                >
-                  +1 Week
-                </button>
-              </div>
-            </div>
-          )}
+          <span className="text-xs text-slate-500">({safeEvents.length} Recorded Events)</span>
         </div>
-
-        {/* Celestial Moons Orbit Display */}
-        {cal?.moons && (
-          <div className="flex items-center gap-3">
-            {cal.moons.map(moon => (
-              <div 
-                key={moon.id} 
-                className="flex items-center gap-2 px-3 py-1 rounded-xl bg-black/40 border border-white/5 text-xs"
-              >
-                <span 
-                  className="w-2.5 h-2.5 rounded-full shrink-0" 
-                  style={{ backgroundColor: moon.color, boxShadow: `0 0 8px ${moon.color}80` }} 
-                />
-                <span className="font-semibold text-slate-300 text-[11px]">{moon.name}:</span>
-                <span className="text-[11px] font-mono text-amber-300">{getMoonPhase(moon.cycleDays)}</span>
-              </div>
-            ))}
-          </div>
-        )}
 
         <div className="flex items-center gap-3">
           <select
@@ -212,14 +120,14 @@ export const TimelineView: React.FC = () => {
             onChange={e => setActiveEra(e.target.value)}
             className="bg-black/50 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-300 outline-none"
           >
-            <option value="all">All Eras ({events.length})</option>
+            <option value="all">All Eras ({safeEvents.length})</option>
             {eras.map(er => (
               <option key={er} value={er}>{er}</option>
             ))}
           </select>
 
           <button
-            onClick={handleOpenAddForm}
+            onClick={() => { resetForm(); setIsFormOpen(true); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs rounded-lg transition-colors"
           >
             <Plus size={13} /> Add Event
@@ -227,17 +135,15 @@ export const TimelineView: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Stream Area */}
       <div className="flex-1 overflow-y-auto px-12 py-8 relative">
         <div className="max-w-3xl mx-auto flex flex-col relative before:absolute before:left-[108px] before:top-4 before:bottom-4 before:w-0.5 before:bg-white/10">
 
-          {/* Add / Edit Event Form Modal */}
           {isFormOpen && (
-            <div className="mb-8 p-5 bg-[#161c26]/95 border border-amber-500/30 rounded-2xl shadow-2xl backdrop-blur-xl flex flex-col gap-3 animate-in fade-in">
+            <div className="mb-8 p-5 bg-[#161c26]/95 border border-amber-500/30 rounded-2xl shadow-2xl backdrop-blur-xl flex flex-col gap-3">
               <div className="flex items-center justify-between pb-2 border-b border-white/5">
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
                   {editingEventId ? <Edit3 size={12} /> : <Plus size={12} />}
-                  {editingEventId ? 'Edit Chronological Event' : 'Plot New Chronological Event'}
+                  {editingEventId ? 'Edit Event' : 'Record New Event'}
                 </span>
                 <button onClick={resetForm} className="text-xs text-slate-500 hover:text-white">✕</button>
               </div>
@@ -249,7 +155,7 @@ export const TimelineView: React.FC = () => {
                     type="text"
                     required
                     autoFocus
-                    placeholder="e.g. The Siege of the Sunken Citadel..."
+                    placeholder="e.g. Siege of the Sunken Spire..."
                     value={title}
                     onChange={e => setTitle(e.target.value)}
                     className="w-full bg-black/50 border border-white/10 rounded px-2.5 py-1.5 text-white outline-none focus:border-amber-500"
@@ -261,7 +167,7 @@ export const TimelineView: React.FC = () => {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. First Age, Age of Rebirth..."
+                    placeholder="e.g. First Age"
                     value={era}
                     onChange={e => setEra(e.target.value)}
                     className="w-full bg-black/50 border border-white/10 rounded px-2.5 py-1.5 text-white outline-none"
@@ -314,7 +220,7 @@ export const TimelineView: React.FC = () => {
                     className="w-full bg-black/50 border border-white/10 rounded px-2 py-1.5 text-slate-300 outline-none"
                   >
                     <option value="">-- No Linked Card --</option>
-                    {cards.map(c => (
+                    {safeCards.map(c => (
                       <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
                     ))}
                   </select>
@@ -324,7 +230,7 @@ export const TimelineView: React.FC = () => {
                   <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Historical Account</label>
                   <textarea
                     rows={3}
-                    placeholder="Describe what occurred during this event..."
+                    placeholder="Describe what occurred..."
                     value={description}
                     onChange={e => setDescription(e.target.value)}
                     className="w-full bg-black/50 border border-white/10 rounded p-2 text-white outline-none resize-none leading-relaxed"
@@ -350,7 +256,6 @@ export const TimelineView: React.FC = () => {
             </div>
           )}
 
-          {/* Event Stream */}
           {filteredEvents.length === 0 ? (
             <div className="text-center text-xs text-slate-500 py-16 italic">
               No historical events recorded for this era. Click "+ Add Event" above to begin charting history.
@@ -358,7 +263,7 @@ export const TimelineView: React.FC = () => {
           ) : (
             filteredEvents.map(evt => {
               const catColor = CATEGORY_COLORS[evt.category] || '#f59e0b';
-              const linkedCard = cards.find(c => evt.linkedCardIds?.includes(c.id));
+              const linkedCard = safeCards.find(c => evt.linkedCardIds?.includes(c.id));
 
               return (
                 <div key={evt.id} className="flex items-start gap-6 mb-8 group relative">
@@ -426,10 +331,8 @@ export const TimelineView: React.FC = () => {
               );
             })
           )}
-
         </div>
       </div>
-
     </div>
   );
 };

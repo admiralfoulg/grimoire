@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState, useCallback } from 'react';
+﻿import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { 
   ReactFlow, 
   Background, 
@@ -14,13 +14,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useGrimoireStore } from '../store/useGrimoireStore';
-import { 
-  Network, 
-  Plus, 
-  X, 
-  ExternalLink, 
-  Filter
-} from 'lucide-react';
+import { Network, Plus, X, ExternalLink, Filter } from 'lucide-react';
 
 const TYPE_COLORS: Record<string, string> = {
   character: '#f59e0b',
@@ -43,7 +37,7 @@ const RELATION_COLORS: Record<string, string> = {
 };
 
 export const GraphView: React.FC = () => {
-  const { cards, relationships, createRelationship, setActiveCard } = useGrimoireStore();
+  const { cards = [], relationships = [], createRelationship, setActiveCard } = useGrimoireStore();
   
   const [activeFilters, setActiveFilters] = useState<Record<string, boolean>>({
     character: true,
@@ -54,7 +48,9 @@ export const GraphView: React.FC = () => {
   });
 
   const [inspectedCardId, setInspectedCardId] = useState<string | null>(null);
-  const inspectedCard = cards.find(c => c.id === inspectedCardId);
+  const safeCards = Array.isArray(cards) ? cards : [];
+  const safeRels = Array.isArray(relationships) ? relationships : [];
+  const inspectedCard = safeCards.find(c => c.id === inspectedCardId);
 
   const [isLinking, setIsLinking] = useState(false);
   const [sourceId, setSourceId] = useState('');
@@ -66,12 +62,12 @@ export const GraphView: React.FC = () => {
   };
 
   const initialNodes: Node[] = useMemo(() => {
-    const visibleCards = cards.filter(c => activeFilters[c.type]);
+    const visibleCards = safeCards.filter(c => activeFilters[c.type] ?? true);
     const total = visibleCards.length;
     const radius = Math.max(180, total * 45);
 
     return visibleCards.map((card, idx) => {
-      const angle = (idx / total) * 2 * Math.PI;
+      const angle = (idx / (total || 1)) * 2 * Math.PI;
       const x = 450 + radius * Math.cos(angle);
       const y = 300 + radius * Math.sin(angle);
       const color = TYPE_COLORS[card.type] || '#f59e0b';
@@ -104,13 +100,13 @@ export const GraphView: React.FC = () => {
         }
       };
     });
-  }, [cards, activeFilters]);
+  }, [safeCards, activeFilters]);
 
   const initialEdges: Edge[] = useMemo(() => {
     const nodeIds = new Set(initialNodes.map(n => n.id));
 
-    return relationships
-      .filter(rel => nodeIds.has(rel.sourceCardId) && nodeIds.has(rel.targetCardId))
+    return safeRels
+      .filter(rel => rel && nodeIds.has(rel.sourceCardId) && nodeIds.has(rel.targetCardId))
       .map(rel => {
         const lowerType = (rel.relationType || '').toLowerCase();
         const strokeColor = RELATION_COLORS[lowerType] || '#c8963e';
@@ -132,16 +128,16 @@ export const GraphView: React.FC = () => {
           }
         };
       });
-  }, [relationships, initialNodes]);
+  }, [safeRels, initialNodes]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setNodes(initialNodes);
   }, [initialNodes, setNodes]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setEdges(initialEdges);
   }, [initialEdges, setEdges]);
 
@@ -173,14 +169,14 @@ export const GraphView: React.FC = () => {
             <Network size={14} /> Nexus Canvas
           </span>
           <span className="text-xs text-slate-500">
-            ({cards.length} Nodes, {relationships.length} Connections)
+            ({safeCards.length} Nodes, {safeRels.length} Connections)
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
           <Filter size={12} className="text-slate-500 mr-1" />
           {Object.entries(activeFilters).map(([type, isActive]) => {
-            const color = TYPE_COLORS[type];
+            const color = TYPE_COLORS[type] || '#f59e0b';
             return (
               <button
                 key={type}
@@ -220,7 +216,7 @@ export const GraphView: React.FC = () => {
           <Controls className="!bg-[#151922] !border-white/10 !fill-slate-300" />
           <MiniMap 
             nodeColor={(n) => {
-              const card = cards.find(c => c.id === n.id);
+              const card = safeCards.find(c => c.id === n.id);
               return card ? (TYPE_COLORS[card.type] || '#f59e0b') : '#f59e0b';
             }}
             maskColor="rgba(10, 13, 19, 0.85)"
@@ -229,14 +225,14 @@ export const GraphView: React.FC = () => {
         </ReactFlow>
 
         {inspectedCard && (
-          <div className="absolute top-4 right-4 w-80 bg-[#161c26]/95 border border-white/10 rounded-2xl p-5 shadow-2xl z-40 backdrop-blur-2xl flex flex-col gap-3 animate-in fade-in zoom-in-95">
+          <div className="absolute top-4 right-4 w-80 bg-[#161c26]/95 border border-white/10 rounded-2xl p-5 shadow-2xl z-40 backdrop-blur-2xl flex flex-col gap-3">
             <div className="flex items-center justify-between pb-2 border-b border-white/5">
               <span 
                 className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border"
                 style={{ 
-                  color: TYPE_COLORS[inspectedCard.type], 
-                  backgroundColor: `${TYPE_COLORS[inspectedCard.type]}15`,
-                  borderColor: `${TYPE_COLORS[inspectedCard.type]}30` 
+                  color: TYPE_COLORS[inspectedCard.type] || '#f59e0b', 
+                  backgroundColor: `${TYPE_COLORS[inspectedCard.type] || '#f59e0b'}15`,
+                  borderColor: `${TYPE_COLORS[inspectedCard.type] || '#f59e0b'}30` 
                 }}
               >
                 {inspectedCard.type}
@@ -249,9 +245,6 @@ export const GraphView: React.FC = () => {
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-100">{inspectedCard.name}</h3>
-                {inspectedCard.aliases && inspectedCard.aliases.length > 0 && (
-                  <span className="text-[11px] text-slate-500">Aliases: {inspectedCard.aliases.join(', ')}</span>
-                )}
               </div>
               <button
                 onClick={() => setActiveCard(inspectedCard.id)}
@@ -261,28 +254,17 @@ export const GraphView: React.FC = () => {
               </button>
             </div>
 
-            {inspectedCard.properties && Object.keys(inspectedCard.properties).length > 0 && (
-              <div className="flex flex-col gap-1 py-2 border-y border-white/5 text-xs">
-                {Object.entries(inspectedCard.properties).slice(0, 4).map(([k, v]) => (
-                  <div key={k} className="flex justify-between text-[11px]">
-                    <span className="text-slate-500 capitalize">{k}:</span>
-                    <span className="text-slate-300 font-medium truncate max-w-[140px]">{String(v)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
             <div className="flex flex-col gap-1.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 Connected Nodes
               </span>
               <div className="max-h-32 overflow-y-auto flex flex-col gap-1">
-                {relationships
+                {safeRels
                   .filter(r => r.sourceCardId === inspectedCard.id || r.targetCardId === inspectedCard.id)
                   .map(r => {
                     const isSource = r.sourceCardId === inspectedCard.id;
                     const otherId = isSource ? r.targetCardId : r.sourceCardId;
-                    const other = cards.find(c => c.id === otherId);
+                    const other = safeCards.find(c => c.id === otherId);
                     return (
                       <div key={r.id} className="flex items-center justify-between p-1.5 rounded-lg bg-black/40 text-xs">
                         <span className="text-[11px] text-slate-400">{r.relationType}:</span>
@@ -310,7 +292,7 @@ export const GraphView: React.FC = () => {
                   required
                 >
                   <option value="">-- Choose Origin Card --</option>
-                  {cards.map(c => (
+                  {safeCards.map(c => (
                     <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
                   ))}
                 </select>
@@ -320,7 +302,7 @@ export const GraphView: React.FC = () => {
                 <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Relationship</label>
                 <input
                   type="text"
-                  placeholder="e.g. Allied with, Ruler of, Child of..."
+                  placeholder="e.g. Allied with, Rival of, Child of..."
                   value={relLabel}
                   onChange={e => setRelLabel(e.target.value)}
                   className="w-full bg-black/50 border border-white/10 rounded-lg px-2.5 py-1.5 text-white outline-none"
@@ -337,7 +319,7 @@ export const GraphView: React.FC = () => {
                   required
                 >
                   <option value="">-- Choose Target Card --</option>
-                  {cards.filter(c => c.id !== sourceId).map(c => (
+                  {safeCards.filter(c => c.id !== sourceId).map(c => (
                     <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
                   ))}
                 </select>
