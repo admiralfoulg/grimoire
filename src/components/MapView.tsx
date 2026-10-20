@@ -180,7 +180,7 @@ const segmentIntersectsSegment = (
   return (t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0);
 };
 
-export const MapView: React.FC = () => {
+export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
   const { 
     maps, 
     activeMapId, 
@@ -217,7 +217,8 @@ export const MapView: React.FC = () => {
     prevTurn
   } = useGrimoireStore();
 
-  const activeMap = maps.find(m => m.id === activeMapId) || maps[0];
+  const effectiveMapId = mapId || activeMapId;
+  const activeMap = maps.find(m => m.id === effectiveMapId) || maps[0];
   const isTactical = (activeMap?.mapType || 'world') === 'tactical';
   const activeCombat = combats.find(c => c.id === activeCombatId);
 

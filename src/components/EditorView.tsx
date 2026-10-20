@@ -247,9 +247,10 @@ const DEFAULT_STATBLOCK: StatblockData = {
   ]
 };
 
-export const EditorView: React.FC = () => {
+export const EditorView: React.FC<{ cardId?: string }> = ({ cardId }) => {
   const { cards, folders, activeCardId, updateCard, setActiveCard, moveCardToFolder, openTab } = useGrimoireStore();
-  const currentCard = cards.find(c => c.id === activeCardId);
+  const effectiveCardId = cardId || activeCardId;
+  const currentCard = cards.find(c => c.id === effectiveCardId);
 
   const [title, setTitle] = useState('');
   const [currentType, setCurrentType] = useState<SupportedCardType>('quicknote');

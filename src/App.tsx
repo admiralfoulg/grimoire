@@ -54,6 +54,62 @@ interface SidebarContextMenu {
 }
 
 export default function App() {
+
+  const renderWorkspaceView = (viewType: string, targetId?: string) => {
+    switch (viewType) {
+      case 'editor':
+      case 'card':
+        return <EditorView cardId={targetId} />;
+      case 'map':
+        return <MapView mapId={targetId} />;
+      case 'graph':
+        return <GraphView />;
+      case 'timeline':
+        return <TimelineView />;
+      case 'combat':
+        return <CampaignTracker />;
+      case 'sessions':
+      case 'session':
+        return <SessionView />;
+      case 'sparks':
+        return <SparksView />;
+      case 'pdf':
+        return <PdfViewer pdfId={targetId} />;
+      default:
+        return <EditorView cardId={targetId} />;
+    }
+  };
+
+
+  const isDraggingSplit = useRef(false);
+
+  const handleSplitMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingSplit.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingSplit.current) return;
+      const mainContainer = document.getElementById('grimoire-workspace-panes');
+      if (!mainContainer) return;
+      const rect = mainContainer.getBoundingClientRect();
+      const newRatio = ((ev.clientX - rect.left) / rect.width) * 100;
+      setSplitRatio(newRatio);
+    };
+
+    const onMouseUp = () => {
+      isDraggingSplit.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
   const {
   init,
   worlds,
@@ -78,6 +134,13 @@ export default function App() {
   setActiveCard,
   setActiveView,
   openTab,
+  isSplit,
+  secondaryTabId,
+  splitRatio,
+  setSplitRatio,
+  setSecondaryTabId,
+  toggleSplit,
+  tabs,
   setActivePdf
 } = useGrimoireStore();
 
@@ -881,14 +944,72 @@ export default function App() {
 
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-transparent relative">
         <TabBar />
-          {activeView === 'editor' && <EditorView />}
-          {activeView === 'map' && <MapView />}
-          {activeView === 'graph' && <GraphView />}
-          {activeView === 'timeline' && <TimelineView />}
-          {activeView === 'combat' && <CampaignTracker />}
-          {activeView === 'sessions' && <SessionView />}
-          {activeView === 'sparks' && <SparksView />}
-          {activeView === 'pdf' && <PdfViewer />}
+
+        <div id="grimoire-workspace-panes" className="flex-1 flex h-full overflow-hidden relative">
+          {/* Primary Left Pane */}
+          <div 
+            style={{ width: isSplit && secondaryTabId ? `${splitRatio}%` : '100%' }} 
+            className="h-full flex flex-col overflow-hidden relative transition-[width] duration-75"
+          >
+            {renderWorkspaceView(activeView)}
+          </div>
+
+          {/* Draggable Divider & Secondary Right Pane */}
+          {isSplit && secondaryTabId && (
+            <>
+              {/* Divider Bar */}
+              <div
+                onMouseDown={handleSplitMouseDown}
+                className="w-1.5 hover:w-2 bg-[#090d14] hover:bg-amber-500/50 cursor-col-resize flex items-center justify-center relative group transition-all shrink-0 z-30 select-none border-x border-white/5"
+                title="Drag to resize panes"
+              >
+                <div className="w-0.5 h-8 bg-slate-600 group-hover:bg-amber-300 rounded-full" />
+              </div>
+
+              {/* Secondary Right Pane */}
+              <div 
+                style={{ width: `${100 - splitRatio}%` }}
+                className="h-full flex flex-col overflow-hidden relative bg-[#0b0f17] border-l border-white/5 shadow-2xl transition-[width] duration-75"
+              >
+                {/* Secondary Header / Quick Switcher */}
+                <div className="h-9 px-3 bg-[#121824] border-b border-white/5 flex items-center justify-between shrink-0 select-none">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                      Side Pane
+                    </span>
+                    <select
+                      value={secondaryTabId || ''}
+                      onChange={(e) => setSecondaryTabId(e.target.value)}
+                      className="bg-transparent text-xs text-slate-200 font-semibold outline-none truncate cursor-pointer max-w-[200px]"
+                    >
+                      {tabs.map(t => (
+                        <option key={t.id} value={t.id} className="bg-[#121824] text-slate-200">
+                          {t.title} ({t.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={toggleSplit}
+                    className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 text-xs transition-colors"
+                    title="Close Side Pane"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Secondary View Content */}
+                <div className="flex-1 h-full overflow-hidden relative">
+                  {(() => {
+                    const secTab = tabs.find(t => t.id === secondaryTabId);
+                    return renderWorkspaceView(secTab?.type || 'card', secondaryTabId);
+                  })()}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
 
           <button 
             onClick={() => setIsVaultOpen(true)}

@@ -11,24 +11,28 @@ import {
   PinOff, 
   Plus, 
   ChevronRight,
-  MoreVertical
+  MoreVertical,
+  Columns2
 } from 'lucide-react';
 
 export const TabBar: React.FC = () => {
   const {
-    tabs,
-    cards,
-    maps,
-    sessions,
-    activeTabId, 
-    setActiveTabId, 
-    closeTab, 
-    reorderTabs, 
-    togglePinTab, 
-    closeOtherTabs, 
-    closeTabsToRight,
-    createCard
-  } = useGrimoireStore();
+  tabs,
+  cards,
+  maps,
+  sessions,
+  activeTabId,
+  setActiveTabId,
+  closeTab,
+  reorderTabs,
+  togglePinTab,
+  closeOtherTabs,
+  closeTabsToRight,
+  createCard,
+  isSplit,
+  toggleSplit,
+  openToSide
+} = useGrimoireStore();
 
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -262,6 +266,21 @@ return ;
         </div>
       )}
 
+          {/* Split Pane Workspace Toggle */}
+      <div className="flex items-center px-2 border-l border-white/5 shrink-0">
+        <button
+          onClick={toggleSplit}
+          className={`p-1.5 rounded-lg text-xs transition-all flex items-center gap-1 ${
+            isSplit 
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          }`}
+          title={isSplit ? 'Close Split View' : 'Split Workspace (Side-by-Side)'}
+        >
+          <Columns2 size={14} />
+          <span className="text-[11px] font-medium hidden sm:inline">{isSplit ? 'Single' : 'Split'}</span>
+        </button>
+      </div>
     </div>
   );
 };

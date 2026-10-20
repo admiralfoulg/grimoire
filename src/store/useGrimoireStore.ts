@@ -56,6 +56,14 @@ interface GrimoireState {
   sessions: SessionRecord[];
   pdfs: PdfDocument[];
   activePdfId: string | null;
+  isSplit: boolean;
+  secondaryTabId: string | null;
+  splitRatio: number;
+  toggleSplit: () => void;
+  setSplit: (split: boolean) => void;
+  setSecondaryTabId: (id: string | null) => void;
+  setSplitRatio: (ratio: number) => void;
+  openToSide: (tab: { id: string; title: string; type: TabType }) => void;
   combatSounds: CombatSoundTrigger[];
   activeCombatId: string | null;
   activeSessionId: string | null;
@@ -325,6 +333,9 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   sessions: [],
   pdfs: [],
   activePdfId: null,
+  isSplit: false,
+  secondaryTabId: null,
+  splitRatio: 50,
   combatSounds: [],
   activeCombatId: null,
   activeSessionId: null,
@@ -952,6 +963,8 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
         set({
           tabs: remaining,
           activeTabId: nextActiveId,
+      secondaryTabId: nextSecondaryId,
+      isSplit: nextIsSplit,
           activeView: viewTarget,
           ...(nextTab.type === 'card' ? { activeCardId: nextTab.id } : {}),
           ...(nextTab.type === 'map' ? { activeMapId: nextTab.id } : {}),
@@ -1821,6 +1834,42 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     const title = pdf ? pdf.title : 'Rulebook Shelf';
     set({ activePdfId: id, activeView: 'pdf' });
     openTab({ id, title, type: 'pdf' });
+  },
+
+  toggleSplit: () => {
+    const { isSplit, tabs, activeTabId } = get();
+    if (!isSplit) {
+      const alternate = tabs.find(t => t.id !== activeTabId) || tabs[0] || null;
+      set({ 
+        isSplit: true, 
+        secondaryTabId: alternate ? alternate.id : (activeTabId || null) 
+      });
+    } else {
+      set({ isSplit: false, secondaryTabId: null });
+    }
+  },
+
+  setSplit: (split: boolean) => {
+    const { tabs, activeTabId } = get();
+    if (split) {
+      const alternate = tabs.find(t => t.id !== activeTabId) || tabs[0] || null;
+      set({ 
+        isSplit: true, 
+        secondaryTabId: alternate ? alternate.id : (activeTabId || null) 
+      });
+    } else {
+      set({ isSplit: false, secondaryTabId: null });
+    }
+  },
+
+  setSecondaryTabId: (id: string | null) => set({ secondaryTabId: id }),
+
+  setSplitRatio: (ratio: number) => set({ splitRatio: Math.max(20, Math.min(80, ratio)) }),
+
+  openToSide: (tab: any) => {
+    const { openTab } = get();
+    openTab(tab);
+    set({ isSplit: true, secondaryTabId: tab.id });
   },
 }));
 

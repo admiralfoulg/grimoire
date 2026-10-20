@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useGrimoireStore } from '../store/useGrimoireStore';
 
-export const PdfViewer: React.FC = () => {
+export const PdfViewer: React.FC<{ pdfId?: string }> = ({ pdfId }) => {
   const { pdfs, activePdfId, setActivePdf, addPdf, deletePdf, openTab } = useGrimoireStore();
   const [zoom, setZoom] = useState<number>(100);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -29,7 +29,8 @@ export const PdfViewer: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [objectUrls, setObjectUrls] = useState<Record<string, string>>({});
 
-  const activeDoc = pdfs.find(p => p.id === activePdfId);
+  const effectivePdfId = pdfId || activePdfId;
+  const activeDoc = pdfs.find(p => p.id === effectivePdfId);
 
   // Generate / manage safe object URLs for Blob PDFs
   useEffect(() => {
