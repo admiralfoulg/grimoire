@@ -71,6 +71,8 @@ export const TabBar: React.FC = () => {
 return ;
       case 'session':
         return <MessageSquareCode size={size} className="text-emerald-400 shrink-0" />;
+      case 'pdf':
+        return <FileText size={size} className="text-red-400 shrink-0" />;
       case 'card':
       default:
         return <FileSpreadsheet size={size} className="text-amber-400 shrink-0" />;

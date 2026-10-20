@@ -1,15 +1,17 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useGrimoireStore } from '../store/useGrimoireStore';
-import { 
-  Search, 
-  BookOpen, 
-  Map as MapIcon, 
-  Network, 
-  User, 
-  MapPin, 
-  Shield, 
-  Gem, 
-  Scroll, 
+import {
+  Search,
+  MessageSquareCode,
+  FileText,
+  BookOpen,
+  Map as MapIcon,
+  Network,
+  User,
+  MapPin,
+  Shield,
+  Gem,
+  Scroll,
   ArrowRight,
   Command
 } from 'lucide-react';
@@ -23,7 +25,7 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 };
 
 export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
-  const { cards, maps, setActiveCard, setActiveMap, setActiveView } = useGrimoireStore();
+  const { cards, maps, sessions, openTab, setActiveCard, setActiveMap, setActiveSession, setActiveView } = useGrimoireStore();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -44,7 +46,7 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
       subtitle: string;
       type: string;
       icon: React.ReactNode;
-      action: () => void;
+      action: (inBackground?: boolean) => void;
     }> = [];
 
     // System view shortcuts
@@ -81,21 +83,47 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
 
     // Entity Cards
     cards.forEach(card => {
-      const matchName = card.name.toLowerCase().includes(q);
+      const cardTitle = card.name || card.title || 'Untitled Card';
+      const matchName = cardTitle.toLowerCase().includes(q);
       const matchAlias = (card.aliases || []).some(a => a.toLowerCase().includes(q));
-      const matchType = card.type.toLowerCase().includes(q);
+      const matchType = (card.type || '').toLowerCase().includes(q);
 
       if (!q || matchName || matchAlias || matchType) {
         results.push({
           id: `card-${card.id}`,
-          title: card.name,
-          subtitle: `${card.type.toUpperCase()} ${card.aliases?.length ? `• (${card.aliases.join(', ')})` : ''}`,
-          type: card.type,
-          icon: TYPE_ICONS[card.type] || <BookOpen size={14} />,
-          action: () => {
-            setActiveCard(card.id);
-            setActiveView('editor');
-            onClose();
+          title: cardTitle,
+          subtitle: `${(card.type || 'DOCUMENT').toUpperCase()} ${card.aliases?.length ? `• (${card.aliases.join(', ')})` : ''}`,
+          type: card.type || 'card',
+          icon: TYPE_ICONS[card.type] || <BookOpen size={14} className="text-amber-400" />,
+          action: (inBackground = false) => {
+            if (inBackground) {
+              openTab({ id: card.id, title: cardTitle, type: 'card' });
+            } else {
+              setActiveCard(card.id);
+              onClose();
+            }
+          }
+        });
+      }
+    });
+
+    // Session Logs
+    (sessions || []).forEach(sess => {
+      const sessTitle = sess.title || 'Session Log';
+      if (!q || sessTitle.toLowerCase().includes(q)) {
+        results.push({
+          id: `session-${sess.id}`,
+          title: sessTitle,
+          subtitle: 'Campaign Session Log',
+          type: 'Session',
+          icon: <MessageSquareCode size={14} className="text-emerald-400" />,
+          action: (inBackground = false) => {
+            if (inBackground) {
+              openTab({ id: sess.id, title: sessTitle, type: 'session' });
+            } else {
+              setActiveSession(sess.id);
+              onClose();
+            }
           }
         });
       }
@@ -110,17 +138,20 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
           subtitle: `Atlas Map • ${map.pins?.length || 0} pins`,
           type: 'Map',
           icon: <MapIcon size={14} className="text-amber-400" />,
-          action: () => {
-            setActiveMap(map.id);
-            setActiveView('map');
-            onClose();
+          action: (inBackground = false) => {
+            if (inBackground) {
+              openTab({ id: map.id, title: map.name, type: 'map' });
+            } else {
+              setActiveMap(map.id);
+              onClose();
+            }
           }
         });
       }
     });
 
     return results.slice(0, 10);
-  }, [query, cards, maps, setActiveCard, setActiveMap, setActiveView, onClose]);
+  }, [query, cards, maps, sessions, openTab, setActiveCard, setActiveMap, setActiveSession, setActiveView, onClose]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -136,7 +167,8 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (searchResults[selectedIndex]) {
-        searchResults[selectedIndex].action();
+        const inBackground = e.ctrlKey || e.metaKey;
+        searchResults[selectedIndex].action(inBackground);
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
@@ -222,6 +254,15 @@ export const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void }> 
           <span className="flex items-center gap-1 font-mono">
             <Command size={10} /> Grimoire Spotlight
           </span>
+        </div>
+              {/* Footer shortcuts strip */}
+        <div className="px-4 py-2 bg-black/40 border-t border-white/5 flex items-center justify-between text-[10px] text-slate-500 select-none">
+          <div className="flex items-center gap-3">
+            <span><kbd className="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-mono">↑↓</kbd> navigate</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-mono">↵</kbd> select</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-mono">Ctrl+↵</kbd> open in background</span>
+          </div>
+          <span><kbd className="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-mono">esc</kbd> close</span>
         </div>
       </div>
     </div>

@@ -832,6 +832,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     let viewTarget: ActiveView = 'editor';
     if (tab.type === 'map') viewTarget = 'map';
     if (tab.type === 'session') viewTarget = 'sessions';
+    if (tab.type === 'pdf') viewTarget = 'pdf';
 
     set({
       tabs: updatedTabs,
@@ -886,6 +887,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     let viewTarget: ActiveView = 'editor';
     if (target.type === 'map') viewTarget = 'map';
     if (target.type === 'session') viewTarget = 'sessions';
+    if (target.type === 'pdf') viewTarget = 'pdf';
 
     set({
       activeTabId: id,

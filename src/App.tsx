@@ -9,6 +9,7 @@ import { ReaderView } from './components/ReaderView';
 import { SessionView } from './components/SessionView';
 import { SparksView } from './components/SparksView';
 import { TabBar } from './components/TabBar';
+import { PdfViewer } from './components/PdfViewer';
 import { CommandPalette } from './components/CommandPalette';
 import { VaultSettingsModal } from './components/VaultSettingsModal';
 import { SettingsDrawer } from './components/SettingsDrawer';
@@ -162,14 +163,49 @@ export default function App() {
   }
 
   // Recursive Folder Tree Node Renderer
+
+  // Helper to test if a card matches search
+  const cardMatchesSearch = (c: any) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const title = (c.name || c.title || '').toLowerCase();
+    const aliasMatch = (c.aliases || []).some((a: string) => a.toLowerCase().includes(q));
+    return title.includes(q) || aliasMatch;
+  };
+
+  // Helper to check if a folder or any of its descendant folders contains matching cards
+  const folderHasMatch = (folderId: string): boolean => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const f = folders.find(item => item.id === folderId);
+    if (f && f.name.toLowerCase().includes(q)) return true;
+
+    // Check direct cards
+    const directMatch = cards.some(c => c.folderId === folderId && cardMatchesSearch(c));
+    if (directMatch) return true;
+
+    // Check child folders recursively
+    const subFolders = folders.filter(sub => sub.parentId === folderId);
+    return subFolders.some(sub => folderHasMatch(sub.id));
+  };
+
   const renderFolderNode = (folder: Folder) => {
-    const isCollapsed = collapsedFolders[folder.id] ?? false;
+    const isSearching = !!searchQuery.trim();
+
+    // If searching and this folder subtree has no matches, do not render it
+    if (isSearching && !folderHasMatch(folder.id)) {
+      return null;
+    }
+
+    // Auto-expand during search, otherwise use manual collapsed state
+    const isCollapsed = isSearching ? false : (collapsedFolders[folder.id] ?? false);
+
     const childFolders = folders
       .filter(f => f.parentId === folder.id)
+      .filter(f => !isSearching || folderHasMatch(f.id))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-    const childCards = cards.filter(c => c.folderId === folder.id && (
-      !searchQuery.trim() || c.name.toLowerCase().includes(searchQuery.toLowerCase())
-    ));
+
+    const childCards = cards.filter(c => c.folderId === folder.id && cardMatchesSearch(c));
 
     const handleDragOver = (e: React.DragEvent) => {
       e.preventDefault();
@@ -312,9 +348,7 @@ export default function App() {
   const rootFolders = folders
     .filter(f => !f.parentId)
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-  const unfiledCards = cards.filter(c => !c.folderId && (
-    !searchQuery.trim() || c.name.toLowerCase().includes(searchQuery.toLowerCase())
-  ));
+  const unfiledCards = cards.filter(c => !c.folderId && cardMatchesSearch(c));
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden theme-bg-dark text-slate-100 font-sans select-none relative">
@@ -497,6 +531,15 @@ export default function App() {
               title="Sparks & Random Tables"
             >
               <Flame size={16} />
+            </button>
+
+            {/* Rulebook PDF Reader */}
+            <button 
+              onClick={() => openTab ? openTab({ id: 'rulebook-viewer', title: 'Rulebook Reference', type: 'pdf' }) : setActiveView('pdf')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'pdf' ? 'text-red-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Rulebook PDF Reader"
+            >
+              <FileText size={16} />
             </button>
 
             {/* Wiki Reader Mode */}
@@ -843,6 +886,7 @@ export default function App() {
           {activeView === 'combat' && <CampaignTracker />}
           {activeView === 'sessions' && <SessionView />}
           {activeView === 'sparks' && <SparksView />}
+          {activeView === 'pdf' && <PdfViewer />}
 
           <button 
             onClick={() => setIsVaultOpen(true)}
