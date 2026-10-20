@@ -54,30 +54,32 @@ interface SidebarContextMenu {
 }
 
 export default function App() {
-  const { 
-    init, 
-    worlds,
-    currentWorld,
-    loadWorldData, 
-    cards, 
-    folders,
-    activeView, 
-    activeCardId, 
-    createCard, 
-    updateCard,
-    deleteCard,
-    duplicateCard,
-    createWorld,
-    deleteWorld,
-    renameWorld,
-    createFolder,
-    renameFolder,
-    deleteFolder,
-    moveCardToFolder,
-    moveFolderToFolder,
-    setActiveCard, 
-    setActiveView 
-  } = useGrimoireStore();
+  const {
+  init,
+  worlds,
+  currentWorld,
+  loadWorldData,
+  cards,
+  folders,
+  activeView,
+  activeCardId,
+  createCard,
+  updateCard,
+  deleteCard,
+  duplicateCard,
+  createWorld,
+  deleteWorld,
+  renameWorld,
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  moveCardToFolder,
+  moveFolderToFolder,
+  setActiveCard,
+  setActiveView,
+  openTab,
+  setActivePdf
+} = useGrimoireStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isCommandOpen, setIsCommandOpen] = useState(false);
@@ -535,7 +537,7 @@ export default function App() {
 
             {/* Rulebook PDF Reader */}
             <button 
-              onClick={() => openTab ? openTab({ id: 'rulebook-viewer', title: 'Rulebook Reference', type: 'pdf' }) : setActiveView('pdf')} 
+              onClick={() => { setActivePdf('rulebook-shelf'); openTab({ id: 'rulebook-shelf', title: 'Rulebooks Shelf', type: 'pdf' }); }} 
               className={`p-1.5 rounded-lg transition-colors ${activeView === 'pdf' ? 'text-red-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
               title="Rulebook PDF Reader"
             >

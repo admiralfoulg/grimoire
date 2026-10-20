@@ -246,6 +246,18 @@ export interface SessionRecord {
   updatedAt: number;
 }
 
+
+export interface PdfDocument {
+  id: string;
+  worldId: string;
+  title: string;
+  sourceType: 'file' | 'url';
+  fileData?: Blob | string;
+  fileName?: string;
+  fileSize?: string;
+  createdAt: string;
+}
+
 export interface CombatSoundTrigger {
   id: string;
   worldId: string;
@@ -266,10 +278,11 @@ interface GrimoireDB extends DBSchema {
   combats: { key: string; value: CombatEncounter; indexes: { 'by-world': string } };
   sessions: { key: string; value: SessionRecord; indexes: { 'by-world': string } };
   combatSounds: { key: string; value: CombatSoundTrigger; indexes: { 'by-world': string } };
+  pdfs: { key: string; value: PdfDocument; indexes: { 'by-world': string } };
 }
 
 const DB_NAME = 'grimoire_workstation_db';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 class DatabaseService {
   private dbPromise: Promise<IDBPDatabase<GrimoireDB>>;
@@ -316,6 +329,10 @@ class DatabaseService {
         if (!db.objectStoreNames.contains('combatSounds')) {
           const soundStore = db.createObjectStore('combatSounds', { keyPath: 'id' });
           soundStore.createIndex('by-world', 'worldId');
+        }
+        if (!db.objectStoreNames.contains('pdfs')) {
+          const pdfStore = db.createObjectStore('pdfs', { keyPath: 'id' });
+          pdfStore.createIndex('by-world', 'worldId');
         }
       }
     });
@@ -491,6 +508,22 @@ class DatabaseService {
   async deleteCombatSound(id: string): Promise<void> {
     const db = await this.dbPromise;
     await db.delete('combatSounds', id);
+  }
+
+  async listPdfsByWorld(worldId: string): Promise<PdfDocument[]> {
+    const db = await this.dbPromise;
+    if (!db.objectStoreNames.contains('pdfs')) return [];
+    return db.getAllFromIndex('pdfs', 'by-world', worldId);
+  }
+
+  async savePdf(pdf: PdfDocument): Promise<void> {
+    const db = await this.dbPromise;
+    await db.put('pdfs', pdf);
+  }
+
+  async deletePdf(id: string): Promise<void> {
+    const db = await this.dbPromise;
+    await db.delete('pdfs', id);
   }
 }
 

@@ -54,6 +54,8 @@ interface GrimoireState {
   events: TimelineEvent[];
   combats: CombatEncounter[];
   sessions: SessionRecord[];
+  pdfs: PdfDocument[];
+  activePdfId: string | null;
   combatSounds: CombatSoundTrigger[];
   activeCombatId: string | null;
   activeSessionId: string | null;
@@ -144,6 +146,9 @@ interface GrimoireState {
   createSession: (title: string) => Promise<SessionRecord>;
   updateSession: (session: SessionRecord) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
+  addPdf: (title: string, fileOrUrl: Blob | string, sourceType: 'file' | 'url', fileName?: string, fileSize?: string) => Promise<PdfDocument>;
+  deletePdf: (id: string) => Promise<void>;
+  setActivePdf: (id: string) => void;
   setActiveSession: (id: string | null) => void;
   togglePinCardInSession: (sessionId: string, cardId: string) => Promise<void>;
 
@@ -250,6 +255,63 @@ async function seedCampaignTemplate(worldId: string) {
   }
 }
 
+
+// Tab Persistence Helpers
+const getStorageKey = (worldId?: string) => worldId ? `grimoire_tabs_${worldId}` : 'grimoire_tabs_default';
+
+const saveTabsToStorage = (worldId: string | undefined, tabs: GrimoireTab[], activeTabId: string | null) => {
+  try {
+    if (!worldId) return;
+    localStorage.setItem(getStorageKey(worldId), JSON.stringify({ tabs, activeTabId }));
+  } catch (err) {
+    console.warn('[Grimoire] Failed to persist tabs:', err);
+  }
+};
+
+const loadTabsFromStorage = (
+  worldId: string,
+  cards: any[],
+  maps: any[],
+  sessions: any[]
+): { tabs: GrimoireTab[]; activeTabId: string | null } => {
+  try {
+    const raw = localStorage.getItem(getStorageKey(worldId));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
+        const validTabs: GrimoireTab[] = parsed.tabs.filter((t: GrimoireTab) => {
+          if (t.type === 'pdf') return true;
+          if (t.type === 'card') return cards.some(c => c.id === t.id);
+          if (t.type === 'map') return maps.some(m => m.id === t.id);
+          if (t.type === 'session') return sessions.some(s => s.id === t.id);
+          return false;
+        });
+
+        if (validTabs.length > 0) {
+          const validActive = validTabs.some(t => t.id === parsed.activeTabId)
+            ? parsed.activeTabId
+            : validTabs[0].id;
+          return { tabs: validTabs, activeTabId: validActive };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Grimoire] Failed to load persisted tabs:', err);
+  }
+
+  const firstCard = cards[0];
+  if (firstCard) {
+    const defaultTab: GrimoireTab = {
+      id: firstCard.id,
+      title: firstCard.title || (firstCard as any).name || (firstCard as any).fileName || 'Untitled Card',
+      type: 'card'
+    };
+    return { tabs: [defaultTab], activeTabId: defaultTab.id };
+  }
+
+  return { tabs: [], activeTabId: null };
+};
+
 export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   worlds: [],
   currentWorld: null,
@@ -261,6 +323,8 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   events: [],
   combats: [],
   sessions: [],
+  pdfs: [],
+  activePdfId: null,
   combatSounds: [],
   activeCombatId: null,
   activeSessionId: null,
@@ -345,6 +409,7 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       const events = await StorageService.listEventsByWorld(current.id);
       const combats = await StorageService.listCombatsByWorld(current.id);
       const sessions = await StorageService.listSessionsByWorld(current.id);
+      const pdfs = await StorageService.listPdfsByWorld(current.id);
       let combatSounds = await StorageService.listCombatSoundsByWorld(current.id);
 
       if (combatSounds.length === 0) {
@@ -371,6 +436,8 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
         combats,
         sessions,
         combatSounds,
+        pdfs,
+        activePdfId: pdfs[0]?.id || null,
         activeCombatId: combats[0]?.id || null,
         activeSessionId: sessions[0]?.id || null,
         tabs: cards[0] ? [{ id: cards[0].id, title: cards[0].title || (cards[0] as any).name || (cards[0] as any).fileName || 'Untitled Card', type: 'card' }] : [],
@@ -409,18 +476,31 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     const combats = await StorageService.listCombatsByWorld(world.id);
     const sessions = await StorageService.listSessionsByWorld(world.id);
     const combatSounds = await StorageService.listCombatSoundsByWorld(world.id);
+    const pdfs = await StorageService.listPdfsByWorld(world.id);
+
+    const restored = loadTabsFromStorage(world.id, cards, maps, sessions);
+    const activeTab = restored.tabs.find(t => t.id === restored.activeTabId);
+    let targetView: ActiveView = 'editor';
+    if (activeTab?.type === 'map') targetView = 'map';
+    if (activeTab?.type === 'session') targetView = 'sessions';
+    if (activeTab?.type === 'pdf') targetView = 'pdf';
 
     set({
       currentWorld: world,
       cards,
       folders,
       maps,
+      tabs: restored.tabs,
+      activeTabId: restored.activeTabId,
+      activeView: targetView,
       savedTokens,
       relationships,
       events,
       combats,
       sessions,
       combatSounds,
+      pdfs,
+      activePdfId: pdfs[0]?.id || null,
       activeCombatId: combats[0]?.id || null,
       activeSessionId: sessions[0]?.id || null,
       activeCardId: cards[0]?.id || null,
@@ -832,7 +912,13 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     let viewTarget: ActiveView = 'editor';
     if (tab.type === 'map') viewTarget = 'map';
     if (tab.type === 'session') viewTarget = 'sessions';
-    if (tab.type === 'pdf') viewTarget = 'pdf';
+    if (tab.type === 'pdf') {
+      viewTarget = 'pdf';
+      set({ activePdfId: tab.id });
+    }
+
+    const { currentWorld } = get();
+    saveTabsToStorage(currentWorld?.id, updatedTabs, tab.id);
 
     set({
       tabs: updatedTabs,
@@ -860,6 +946,9 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
         if (nextTab.type === 'map') viewTarget = 'map';
         if (nextTab.type === 'session') viewTarget = 'sessions';
 
+        const { currentWorld } = get();
+        saveTabsToStorage(currentWorld?.id, remaining, nextActiveId);
+
         set({
           tabs: remaining,
           activeTabId: nextActiveId,
@@ -871,11 +960,15 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
         return;
       } else {
         nextActiveId = null;
+        const { currentWorld } = get();
+        saveTabsToStorage(currentWorld?.id, remaining, null);
         set({ tabs: remaining, activeTabId: null });
         return;
       }
     }
 
+    const { currentWorld } = get();
+    saveTabsToStorage(currentWorld?.id, remaining, activeTabId);
     set({ tabs: remaining });
   },
 
@@ -888,6 +981,9 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     if (target.type === 'map') viewTarget = 'map';
     if (target.type === 'session') viewTarget = 'sessions';
     if (target.type === 'pdf') viewTarget = 'pdf';
+
+    const { currentWorld, tabs: currentTabs } = get();
+    saveTabsToStorage(currentWorld?.id, currentTabs, id);
 
     set({
       activeTabId: id,
@@ -903,31 +999,35 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     const result = Array.from(tabs);
     const [removed] = result.splice(startIndex, 1);
     result.splice(endIndex, 0, removed);
+    const { currentWorld, activeTabId } = get();
+    saveTabsToStorage(currentWorld?.id, result, activeTabId);
     set({ tabs: result });
   },
 
   togglePinTab: (id) => {
     const { tabs } = get();
-    set({
-      tabs: tabs.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t)
-    });
+    const nextTabs = tabs.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t);
+    const { currentWorld, activeTabId } = get();
+    saveTabsToStorage(currentWorld?.id, nextTabs, activeTabId);
+    set({ tabs: nextTabs });
   },
 
   closeOtherTabs: (id) => {
     const { tabs } = get();
-    set({
-      tabs: tabs.filter(t => t.id === id || t.pinned),
-      activeTabId: id
-    });
+    const nextTabs = tabs.filter(t => t.id === id || t.pinned);
+    const { currentWorld } = get();
+    saveTabsToStorage(currentWorld?.id, nextTabs, id);
+    set({ tabs: nextTabs, activeTabId: id });
   },
 
   closeTabsToRight: (id) => {
     const { tabs } = get();
     const targetIndex = tabs.findIndex(t => t.id === id);
     if (targetIndex === -1) return;
-    set({
-      tabs: tabs.filter((t, idx) => idx <= targetIndex || t.pinned)
-    });
+    const nextTabs = tabs.filter((t, idx) => idx <= targetIndex || t.pinned);
+    const { currentWorld, activeTabId } = get();
+    saveTabsToStorage(currentWorld?.id, nextTabs, activeTabId);
+    set({ tabs: nextTabs });
   },
 
   setActiveCard: (id) => {
@@ -1680,7 +1780,48 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
       currentWorld: updatedWorld,
       worlds: worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w)
     });
-  }
+  },
+
+  addPdf: async (title, fileOrUrl, sourceType, fileName, fileSize) => {
+    const { currentWorld, openTab } = get();
+    if (!currentWorld) throw new Error('No world active');
+
+    const newPdf: PdfDocument = {
+      id: crypto.randomUUID(),
+      worldId: currentWorld.id,
+      title,
+      sourceType,
+      fileData: fileOrUrl,
+      fileName: fileName || title,
+      fileSize: fileSize || '',
+      createdAt: new Date().toISOString()
+    };
+
+    await StorageService.savePdf(newPdf);
+    const updated = [...get().pdfs, newPdf];
+    set({ pdfs: updated, activePdfId: newPdf.id });
+    openTab({ id: newPdf.id, title: newPdf.title, type: 'pdf' });
+    return newPdf;
+  },
+
+  deletePdf: async (id) => {
+    await StorageService.deletePdf(id);
+    const { pdfs, closeTab, activePdfId } = get();
+    const updated = pdfs.filter(p => p.id !== id);
+    set({
+      pdfs: updated,
+      activePdfId: activePdfId === id ? (updated[0]?.id || null) : activePdfId
+    });
+    closeTab(id);
+  },
+
+  setActivePdf: (id) => {
+    const { pdfs, openTab } = get();
+    const pdf = pdfs.find(p => p.id === id);
+    const title = pdf ? pdf.title : 'Rulebook Shelf';
+    set({ activePdfId: id, activeView: 'pdf' });
+    openTab({ id, title, type: 'pdf' });
+  },
 }));
 
 if (typeof window !== "undefined") {
