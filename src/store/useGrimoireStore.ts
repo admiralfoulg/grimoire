@@ -26,7 +26,7 @@ import {
   type CombatSoundTrigger
 } from '../services/storage';
 
-export type ActiveView = 'editor' | 'map' | 'graph' | 'timeline' | 'combat' | 'sessions' | 'soundboard' | 'reader' | 'settings';
+export type ActiveView = 'editor' | 'map' | 'graph' | 'timeline' | 'combat' | 'sessions' | 'soundboard' | 'reader' | 'settings' | 'sparks';
 
 const DEFAULT_COMBAT_SOUNDS: Omit<CombatSoundTrigger, 'id' | 'worldId'>[] = [
   { name: 'Thunder Clap', url: '/audio/Rain-thunder.mp3', icon: '⚡', volume: 0.8 },

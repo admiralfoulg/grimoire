@@ -7,6 +7,7 @@ import { TimelineView } from './components/TimelineView';
 import { CampaignTracker } from './components/CampaignTracker';
 import { ReaderView } from './components/ReaderView';
 import { SessionView } from './components/SessionView';
+import { SparksView } from './components/SparksView';
 import { CommandPalette } from './components/CommandPalette';
 import { VaultSettingsModal } from './components/VaultSettingsModal';
 import { SettingsDrawer } from './components/SettingsDrawer';
@@ -37,7 +38,9 @@ import {
   Trash2,
   Copy,
   FileText,
-  Folder as FolderIcon
+  Folder as FolderIcon,
+  Flame,
+  BookOpen
 } from 'lucide-react';
 
 interface SidebarContextMenu {
@@ -414,9 +417,122 @@ export default function App() {
       <DiceRoller />
 
       {/* Top Master Bar */}
-      <header className="h-10 px-3 flex items-center justify-between border-b border-white/5 theme-bg-sidebar backdrop-blur-md z-30 shrink-0 text-xs">
-        <div className="flex items-center gap-1.5">
-          <div className="relative">
+
+      {/* Main Workstation Layout */}
+      <div className="flex-1 flex overflow-hidden z-20">
+
+        {/* Far-Left Vertical Toolbar */}
+        <div className="w-10 theme-bg-sidebar border-r border-white/5 flex flex-col justify-between items-center py-2.5 shrink-0 z-20 select-none">
+          {/* Main Navigation Stack */}
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onClick={() => setIsNewCampaignOpen(true)}
+              className="w-7 h-7 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 flex items-center justify-center text-amber-400 hover:text-amber-300 transition-colors shadow-sm"
+              title="New Campaign"
+            >
+              <Plus size={14} />
+            </button>
+
+            <div className="w-5 h-px bg-white/10 my-0.5" />
+
+            {/* Codex Documents */}
+            <button 
+              onClick={() => setActiveView('editor')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'editor' ? 'text-amber-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Codex Documents"
+            >
+              <FileSpreadsheet size={16} />
+            </button>
+
+            {/* Atlas Maps */}
+            <button 
+              onClick={() => setActiveView('map')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'map' ? 'text-blue-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Atlas Maps"
+            >
+              <Images size={16} />
+            </button>
+
+            {/* Nexus Graph */}
+            <button 
+              onClick={() => setActiveView('graph')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'graph' ? 'text-purple-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Nexus Graph"
+            >
+              <LayoutGrid size={16} />
+            </button>
+
+            {/* Chronicles */}
+            <button 
+              onClick={() => setActiveView('timeline')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'timeline' ? 'text-emerald-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Chronicles"
+            >
+              <Calendar size={16} />
+            </button>
+
+            {/* Combat Tracker */}
+            <button 
+              onClick={() => setActiveView('combat')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'combat' ? 'text-red-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Combat Tracker"
+            >
+              <Swords size={16} />
+            </button>
+
+            {/* Session Logs */}
+            <button 
+              onClick={() => setActiveView('sessions')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'sessions' ? 'text-emerald-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Session Logs"
+            >
+              <MessageSquareCode size={16} />
+            </button>
+
+            {/* Sparks & Random Tables */}
+            <button 
+              onClick={() => setActiveView('sparks')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'sparks' ? 'text-amber-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Sparks & Random Tables"
+            >
+              <Flame size={16} />
+            </button>
+
+            {/* Wiki Reader Mode */}
+            <button 
+              onClick={() => setActiveView('reader')} 
+              className={`p-1.5 rounded-lg transition-colors ${activeView === 'reader' ? 'text-cyan-400 bg-white/10 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`} 
+              title="Wiki Reader Mode"
+            >
+              <BookOpen size={16} />
+            </button>
+          </div>
+
+          {/* Bottom Utilities */}
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-white/5 transition-colors"
+              title="Appearance & Themes"
+            >
+              <Palette size={16} />
+            </button>
+
+            <button
+              onClick={() => setIsVaultOpen(true)}
+              className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white text-xs font-bold transition-colors"
+              title="Vault Settings & Help"
+            >
+              ?
+            </button>
+          </div>
+        </div>
+
+        <aside className="w-72 bg-[#10151f]/85 backdrop-blur-xl border-r border-white/5 flex flex-col justify-between shrink-0">
+          <div className="flex flex-col">
+              {/* Campaign Switcher Header Strip */}
+              <div className="px-3 py-2 border-b border-white/5 theme-bg-sidebar flex items-center justify-between z-30">
+                <div className="relative">
             <button 
               onClick={() => setIsCampaignDropdownOpen(prev => !prev)}
               className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#18212e] border border-white/10 hover:border-white/25 transition-colors text-slate-200 font-medium"
@@ -510,154 +626,7 @@ export default function App() {
               </div>
             )}
           </div>
-
-          <button 
-            onClick={() => setActiveView('map')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
-              activeView === 'map' ? 'bg-[#1e2736] text-white border border-white/10' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <MapIcon size={12} />
-            <span>Atlas</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveView('editor')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
-              activeView === 'editor' ? 'bg-[#1e2736] text-white border border-white/10' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileSpreadsheet size={12} />
-            <span>Codex</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveView('graph')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
-              activeView === 'graph' ? 'bg-[#1e2736] text-white border border-white/10' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Network size={12} />
-            <span>Nexus</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveView('timeline')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
-              activeView === 'timeline' ? 'bg-[#1e2736] text-white border border-white/10' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Calendar size={12} />
-            <span>Chronicles</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveView('combat')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
-              activeView === 'combat' ? 'bg-[#1e2736] text-white border border-white/10' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Swords size={12} className="text-red-400" />
-            <span>Combat</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveView('sessions' as any)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
-              activeView === ('sessions' as any) ? 'bg-[#1e2736] text-white border border-white/10' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <MessageSquareCode size={12} className="text-emerald-400" />
-            <span>Sessions</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveView('reader')}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-amber-500/10 text-slate-400 hover:text-amber-300 border border-transparent hover:border-amber-500/30 transition-colors"
-            title="Open Wiki Reader Mode"
-          >
-            <Eye size={12} />
-            <span>Reader</span>
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleToggleProject}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold text-xs transition-all shadow-md ${
-              isProjecting
-                ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/25 ring-2 ring-amber-400/50'
-                : 'bg-purple-500/20 hover:bg-purple-500/35 text-purple-300 border border-purple-500/40'
-            }`}
-          >
-            {isProjecting ? (
-              <>
-                <Radio size={12} className="animate-pulse" />
-                <span>Live to Players</span>
-              </>
-            ) : (
-              <>
-                <Cast size={12} />
-                <span>Project Screen</span>
-              </>
-            )}
-          </button>
-
-          <span className="text-slate-300 font-mono text-[11px] flex items-center gap-1.5">
-            <Clock size={11} className="opacity-60" /> {currentTime}
-          </span>
-            <button
-              onClick={() => setIsSettingsDrawerOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-300 transition-colors border border-white/10"
-              title="UI Themes & Settings"
-            >
-              <Palette size={13} className="text-amber-400" />
-              <span className="text-[11px] font-medium">Theme</span>
-            </button>
-        </div>
-      </header>
-
-      {/* Main Workstation Layout */}
-      <div className="flex-1 flex overflow-hidden z-20">
-
-        {/* Far-Left Vertical Toolbar */}
-        <div className="w-10 bg-[#0d121a]/90 border-r border-white/5 flex flex-col justify-between items-center py-3 shrink-0">
-          <div className="flex flex-col items-center gap-3">
-            <button
-              onClick={() => setIsNewCampaignOpen(true)}
-              className="w-7 h-7 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/40 text-amber-300 flex items-center justify-center transition-colors shadow-md"
-              title="Start New Campaign"
-            >
-              <Plus size={15} />
-            </button>
-            <div className="w-6 h-px bg-white/10 my-1" />
-            <button onClick={() => setActiveView('editor')} className={`p-1.5 rounded-lg hover:text-slate-200 ${activeView === 'editor' ? 'text-amber-400 bg-white/5' : 'text-slate-500'}`} title="Codex Documents">
-              <FileSpreadsheet size={16} />
-            </button>
-            <button onClick={() => setActiveView('map')} className={`p-1.5 rounded-lg hover:text-slate-200 ${activeView === 'map' ? 'text-blue-400 bg-white/5' : 'text-slate-500'}`} title="Atlas Maps">
-              <Images size={16} />
-            </button>
-            <button onClick={() => setActiveView('graph')} className={`p-1.5 rounded-lg hover:text-slate-200 ${activeView === 'graph' ? 'text-purple-400 bg-white/5' : 'text-slate-500'}`} title="Nexus Graph">
-              <LayoutGrid size={16} />
-            </button>
-            <button onClick={() => setActiveView('timeline')} className={`p-1.5 rounded-lg hover:text-slate-200 ${activeView === 'timeline' ? 'text-emerald-400 bg-white/5' : 'text-slate-500'}`} title="Chronicles">
-              <Calendar size={16} />
-            </button>
-            <button onClick={() => setActiveView('combat')} className={`p-1.5 rounded-lg hover:text-slate-200 ${activeView === 'combat' ? 'text-red-400 bg-white/5' : 'text-slate-500'}`} title="Combat Tracker">
-              <Swords size={16} />
-            </button>
-            <button onClick={() => setActiveView('sessions' as any)} className={`p-1.5 rounded-lg hover:text-slate-200 ${activeView === ('sessions' as any) ? 'text-emerald-400 bg-white/5' : 'text-slate-500'}`} title="Session Logs">
-              <MessageSquareCode size={16} />
-            </button>
-          </div>
-
-          <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 text-[11px] font-bold">
-            ●
-          </div>
-        </div>
-
-        <aside className="w-72 bg-[#10151f]/85 backdrop-blur-xl border-r border-white/5 flex flex-col justify-between shrink-0">
-          <div className="flex flex-col">
+              </div>
             <div className="p-3 border-b border-white/5 flex items-center gap-2">
               <div className="flex-1 flex items-center gap-2 bg-[#090d14]/90 border border-white/5 rounded-lg px-2.5 py-1.5 focus-within:border-white/25 transition-colors">
                 <Search size={13} className="text-slate-500 shrink-0" />
@@ -870,7 +839,8 @@ export default function App() {
           {activeView === 'graph' && <GraphView />}
           {activeView === 'timeline' && <TimelineView />}
           {activeView === 'combat' && <CampaignTracker />}
-          {activeView === ('sessions' as any) && <SessionView />}
+          {activeView === 'sessions' && <SessionView />}
+          {activeView === 'sparks' && <SparksView />}
 
           <button 
             onClick={() => setIsVaultOpen(true)}
