@@ -620,7 +620,7 @@ export default function App() {
           {/* Bottom Utilities */}
           <div className="flex flex-col items-center gap-2">
             <button
-              onClick={() => setIsSettingsOpen(true)}
+              onClick={() => setIsSettingsDrawerOpen(true)}
               className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-white/5 transition-colors"
               title="Appearance & Themes"
             >
