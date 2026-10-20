@@ -248,7 +248,7 @@ const DEFAULT_STATBLOCK: StatblockData = {
 };
 
 export const EditorView: React.FC = () => {
-  const { cards, folders, activeCardId, updateCard, setActiveCard, moveCardToFolder } = useGrimoireStore();
+  const { cards, folders, activeCardId, updateCard, setActiveCard, moveCardToFolder, openTab } = useGrimoireStore();
   const currentCard = cards.find(c => c.id === activeCardId);
 
   const [title, setTitle] = useState('');
@@ -538,7 +538,22 @@ export const EditorView: React.FC = () => {
           <span
             key={`link-${idx}`}
             className="wiki-link inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 cursor-pointer"
-            onClick={() => targetCard && setActiveCard(targetCard.id)}
+            onClick={(e) => {
+              if (!targetCard) return;
+              if (e.ctrlKey || e.metaKey) {
+                // Background tab open
+                openTab({ id: targetCard.id, title: targetCard.title, type: 'card' });
+              } else {
+                setActiveCard(targetCard.id);
+              }
+            }}
+            onAuxClick={(e) => {
+              if (e.button === 1 && targetCard) {
+                // Middle-click opens in tab
+                e.preventDefault();
+                openTab({ id: targetCard.id, title: targetCard.title, type: 'card' });
+              }
+            }}
           >
             <Link2 size={11} className="opacity-70" />
             <span>{token.payload}</span>

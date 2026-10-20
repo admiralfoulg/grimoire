@@ -26,6 +26,15 @@ import {
   type CombatSoundTrigger
 } from '../services/storage';
 
+
+export type TabType = 'card' | 'map' | 'session' | 'pdf';
+export interface GrimoireTab {
+  id: string;
+  title: string;
+  type: TabType;
+  pinned?: boolean;
+}
+
 export type ActiveView = 'editor' | 'map' | 'graph' | 'timeline' | 'combat' | 'sessions' | 'soundboard' | 'reader' | 'settings' | 'sparks';
 
 const DEFAULT_COMBAT_SOUNDS: Omit<CombatSoundTrigger, 'id' | 'worldId'>[] = [
@@ -49,6 +58,15 @@ interface GrimoireState {
   activeCombatId: string | null;
   activeSessionId: string | null;
 
+  tabs: GrimoireTab[];
+  activeTabId: string | null;
+  openTab: (tab: { id: string; title: string; type: TabType; pinned?: boolean }) => void;
+  closeTab: (id: string) => void;
+  setActiveTabId: (id: string) => void;
+  reorderTabs: (startIndex: number, endIndex: number) => void;
+  togglePinTab: (id: string) => void;
+  closeOtherTabs: (id: string) => void;
+  closeTabsToRight: (id: string) => void;
   activeView: ActiveView;
   activeCardId: string | null;
   activeMapId: string | null;
@@ -246,6 +264,8 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
   combatSounds: [],
   activeCombatId: null,
   activeSessionId: null,
+  tabs: [],
+  activeTabId: null,
   activeView: 'editor',
   activeCardId: null,
   activeMapId: null,
@@ -353,6 +373,8 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
         combatSounds,
         activeCombatId: combats[0]?.id || null,
         activeSessionId: sessions[0]?.id || null,
+        tabs: cards[0] ? [{ id: cards[0].id, title: cards[0].title || (cards[0] as any).name || (cards[0] as any).fileName || 'Untitled Card', type: 'card' }] : [],
+        activeTabId: cards[0]?.id || null,
         activeCardId: cards[0]?.id || null, 
         activeMapId: maps[0]?.id || null 
       });
@@ -784,7 +806,138 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     });
   },
 
-  setActiveCard: (id) => set({ activeCardId: id, activeView: 'editor' }),
+
+  openTab: (tab) => {
+    const { tabs, cards, maps, sessions } = get();
+    const existingIndex = tabs.findIndex(t => t.id === tab.id);
+
+    let resolvedTitle = tab.title;
+    if (!resolvedTitle) {
+      if (tab.type === 'card') {
+        const found = cards.find(c => c.id === tab.id);
+        resolvedTitle = found?.title || (found as any)?.name || (found as any)?.fileName || 'Untitled Card';
+      }
+      else if (tab.type === 'map') resolvedTitle = maps.find(m => m.id === tab.id)?.name || 'Untitled Map';
+      else if (tab.type === 'session') resolvedTitle = sessions.find(s => s.id === tab.id)?.title || 'Untitled Session';
+      else resolvedTitle = 'Document';
+    }
+
+    let updatedTabs = [...tabs];
+    if (existingIndex === -1) {
+      updatedTabs.push({ ...tab, title: resolvedTitle });
+    } else {
+      updatedTabs[existingIndex] = { ...updatedTabs[existingIndex], title: resolvedTitle };
+    }
+
+    let viewTarget: ActiveView = 'editor';
+    if (tab.type === 'map') viewTarget = 'map';
+    if (tab.type === 'session') viewTarget = 'sessions';
+
+    set({
+      tabs: updatedTabs,
+      activeTabId: tab.id,
+      activeView: viewTarget,
+      ...(tab.type === 'card' ? { activeCardId: tab.id } : {}),
+      ...(tab.type === 'map' ? { activeMapId: tab.id } : {}),
+      ...(tab.type === 'session' ? { activeSessionId: tab.id } : {})
+    });
+  },
+
+  closeTab: (id) => {
+    const { tabs, activeTabId } = get();
+    const tabIndex = tabs.findIndex(t => t.id === id);
+    if (tabIndex === -1) return;
+
+    const remaining = tabs.filter(t => t.id !== id);
+    let nextActiveId = activeTabId;
+
+    if (activeTabId === id) {
+      if (remaining.length > 0) {
+        const nextTab = remaining[Math.min(tabIndex, remaining.length - 1)];
+        nextActiveId = nextTab.id;
+        let viewTarget: ActiveView = 'editor';
+        if (nextTab.type === 'map') viewTarget = 'map';
+        if (nextTab.type === 'session') viewTarget = 'sessions';
+
+        set({
+          tabs: remaining,
+          activeTabId: nextActiveId,
+          activeView: viewTarget,
+          ...(nextTab.type === 'card' ? { activeCardId: nextTab.id } : {}),
+          ...(nextTab.type === 'map' ? { activeMapId: nextTab.id } : {}),
+          ...(nextTab.type === 'session' ? { activeSessionId: nextTab.id } : {})
+        });
+        return;
+      } else {
+        nextActiveId = null;
+        set({ tabs: remaining, activeTabId: null });
+        return;
+      }
+    }
+
+    set({ tabs: remaining });
+  },
+
+  setActiveTabId: (id) => {
+    const { tabs } = get();
+    const target = tabs.find(t => t.id === id);
+    if (!target) return;
+
+    let viewTarget: ActiveView = 'editor';
+    if (target.type === 'map') viewTarget = 'map';
+    if (target.type === 'session') viewTarget = 'sessions';
+
+    set({
+      activeTabId: id,
+      activeView: viewTarget,
+      ...(target.type === 'card' ? { activeCardId: target.id } : {}),
+      ...(target.type === 'map' ? { activeMapId: target.id } : {}),
+      ...(target.type === 'session' ? { activeSessionId: target.id } : {})
+    });
+  },
+
+  reorderTabs: (startIndex, endIndex) => {
+    const { tabs } = get();
+    const result = Array.from(tabs);
+    const [removed] = result.splice(startIndex, 1);
+    result.splice(endIndex, 0, removed);
+    set({ tabs: result });
+  },
+
+  togglePinTab: (id) => {
+    const { tabs } = get();
+    set({
+      tabs: tabs.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t)
+    });
+  },
+
+  closeOtherTabs: (id) => {
+    const { tabs } = get();
+    set({
+      tabs: tabs.filter(t => t.id === id || t.pinned),
+      activeTabId: id
+    });
+  },
+
+  closeTabsToRight: (id) => {
+    const { tabs } = get();
+    const targetIndex = tabs.findIndex(t => t.id === id);
+    if (targetIndex === -1) return;
+    set({
+      tabs: tabs.filter((t, idx) => idx <= targetIndex || t.pinned)
+    });
+  },
+
+  setActiveCard: (id) => {
+    const state = get();
+    const card = state.cards.find(c => c.id === id);
+    if (id && card) {
+      const resolvedName = card.title || (card as any).name || (card as any).fileName || 'Untitled Card';
+      state.openTab({ id: card.id, title: resolvedName, type: 'card' });
+    } else {
+      set({ activeCardId: id, activeView: 'editor' });
+    }
+  },
   setActiveView: (view) => set({ activeView: view }),
 
   createMap: async (name, imageUrl, mapType = 'world') => {
@@ -837,7 +990,15 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     });
   },
 
-  setActiveMap: (id) => set({ activeMapId: id, activeView: 'map' }),
+  setActiveMap: (id) => {
+    const state = get();
+    const map = state.maps.find(m => m.id === id);
+    if (id && map) {
+      state.openTab({ id: map.id, title: map.name, type: 'map' });
+    } else {
+      set({ activeMapId: id, activeView: 'map' });
+    }
+  },
   setSelectedTokenId: (id) => set({ selectedTokenId: id }),
 
   setMapLighting: async (mapId, ambientLighting) => {
@@ -1451,7 +1612,15 @@ export const useGrimoireStore = create<GrimoireState>((set, get) => ({
     });
   },
 
-  setActiveSession: (id) => set({ activeSessionId: id, activeView: 'sessions' }),
+  setActiveSession: (id) => {
+    const state = get();
+    const session = state.sessions.find(s => s.id === id);
+    if (id && session) {
+      state.openTab({ id: session.id, title: session.title, type: 'session' });
+    } else {
+      set({ activeSessionId: id, activeView: 'sessions' });
+    }
+  },
 
   togglePinCardInSession: async (sessionId, cardId) => {
     const { sessions } = get();

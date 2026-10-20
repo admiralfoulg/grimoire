@@ -8,6 +8,7 @@ import { CampaignTracker } from './components/CampaignTracker';
 import { ReaderView } from './components/ReaderView';
 import { SessionView } from './components/SessionView';
 import { SparksView } from './components/SparksView';
+import { TabBar } from './components/TabBar';
 import { CommandPalette } from './components/CommandPalette';
 import { VaultSettingsModal } from './components/VaultSettingsModal';
 import { SettingsDrawer } from './components/SettingsDrawer';
@@ -834,6 +835,7 @@ export default function App() {
         )}
 
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-transparent relative">
+        <TabBar />
           {activeView === 'editor' && <EditorView />}
           {activeView === 'map' && <MapView />}
           {activeView === 'graph' && <GraphView />}
