@@ -248,7 +248,7 @@ const DEFAULT_STATBLOCK: StatblockData = {
 };
 
 export const EditorView: React.FC<{ cardId?: string }> = ({ cardId }) => {
-  const { cards, folders, activeCardId, updateCard, setActiveCard, moveCardToFolder, openTab } = useGrimoireStore();
+  const { cards, folders, activeCardId, updateCard, setActiveCard, moveCardToFolder, openTab, isSplit } = useGrimoireStore();
   const effectiveCardId = cardId || activeCardId;
   const currentCard = cards.find(c => c.id === effectiveCardId);
 
@@ -609,11 +609,11 @@ export const EditorView: React.FC<{ cardId?: string }> = ({ cardId }) => {
       </div>
 
       {/* Main Document Body */}
-      <div className="flex-1 overflow-y-auto px-12 py-8">
+      <div className={`flex-1 overflow-y-auto ${isSplit ? 'px-6 py-5' : 'px-12 py-8'}`}>
         <div className="max-w-4xl mx-auto flex flex-col gap-6">
 
           {/* Top Title, Type Pill, Aliases & Attributes Matrix with Portrait */}
-          <div className="flex items-start justify-between gap-8">
+          <div className={`flex items-start justify-between ${isSplit ? 'gap-4' : 'gap-8'}`}>
             <div className="flex-1 flex flex-col gap-2.5">
               
               {/* Document Title: Connected in real-time to sidebar */}
@@ -716,7 +716,7 @@ export const EditorView: React.FC<{ cardId?: string }> = ({ cardId }) => {
 
               {/* Header Attributes Grid */}
               {!isAttributesCollapsed && (
-                <div className="grid grid-cols-2 gap-x-12 gap-y-2.5 pt-1 text-xs">
+                <div className={`grid ${isSplit ? 'grid-cols-1 gap-y-2' : 'grid-cols-2 gap-x-12 gap-y-2.5'} pt-1 text-xs`}>
                   {/* Column 1 */}
                   <div className="flex flex-col gap-2.5">
                     {activeSchema.col1.map(field => (
@@ -756,7 +756,7 @@ export const EditorView: React.FC<{ cardId?: string }> = ({ cardId }) => {
             </div>
 
             {/* Right-Hand Portrait Box */}
-            <div className="w-56 shrink-0 flex flex-col gap-1.5">
+            <div className={`${isSplit ? 'w-28' : 'w-56'} shrink-0 flex flex-col gap-1.5 transition-all`}>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -767,7 +767,7 @@ export const EditorView: React.FC<{ cardId?: string }> = ({ cardId }) => {
 
               <div 
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full aspect-[3/4] rounded-2xl bg-[#141b25]/90 border border-white/10 hover:border-amber-500/40 overflow-hidden relative group shadow-2xl flex flex-col items-center justify-center cursor-pointer transition-colors"
+                className={`w-full ${isSplit ? 'aspect-square rounded-xl' : 'aspect-[3/4] rounded-2xl'} bg-[#141b25]/90 border border-white/10 hover:border-amber-500/40 overflow-hidden relative group shadow-2xl flex flex-col items-center justify-center cursor-pointer transition-all`}
                 title="Click to choose image file from your computer"
               >
                 {properties.portraitUrl ? (
