@@ -81,6 +81,7 @@ export interface Card {
   id: string;
   worldId: string;
   folderId?: string;
+  icon?: string;
   name: string;
   type: 'character' | 'location' | 'faction' | 'item' | 'lore' | 'monster' | 'npc' | 'quest';
   sectionCategory?: string;

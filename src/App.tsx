@@ -1,3 +1,5 @@
+import {
+  PlayerDisplayWindow } from './components/PlayerDisplayWindow';
 ﻿import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useGrimoireStore } from './store/useGrimoireStore';
 import { EditorView } from './components/EditorView';
@@ -13,10 +15,12 @@ import { PdfViewer } from './components/PdfViewer';
 import { CommandPalette } from './components/CommandPalette';
 import { VaultSettingsModal } from './components/VaultSettingsModal';
 import { SettingsDrawer } from './components/SettingsDrawer';
+import { FolderIconModal, FOLDER_ICON_MAP } from './components/FolderIconModal';
 import { DiceRoller } from './components/DiceRoller';
 import { ProjectionService } from './services/broadcast';
 import type { Folder, Card } from './services/storage';
 import {
+  Sparkles,
   FolderPlus,
   ChevronDown,
   ChevronRight,
@@ -54,6 +58,11 @@ interface SidebarContextMenu {
 }
 
 export default function App() {
+  const isPlayerWindow = new URLSearchParams(window.location.search).get('player') === 'true';
+  if (isPlayerWindow) {
+    return <PlayerDisplayWindow />;
+  }
+
 
   const renderWorkspaceView = (viewType: string, targetId?: string) => {
     switch (viewType) {
@@ -156,6 +165,8 @@ export default function App() {
   const [newCampaignGenre, setNewCampaignGenre] = useState('Fantasy');
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
+  const [iconPickerTarget, setIconPickerTarget] = useState<{ id: string; name: string; icon?: string; type: "folder" | "card" } | null>(null);
+  const [folderIconTarget, setFolderIconTarget] = useState<Folder | null>(null);
   const [isProjecting, setIsProjecting] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
 
@@ -226,6 +237,23 @@ export default function App() {
   if (activeView === 'reader') {
     return <ReaderView />;
   }
+
+  
+  const renderDynamicFolderIcon = (f: Folder) => {
+    if (f.icon && FOLDER_ICON_MAP[f.icon]) {
+      const CustomIcon = FOLDER_ICON_MAP[f.icon];
+      return <CustomIcon size={14} className="text-amber-400 shrink-0" />;
+    }
+    return <FolderIcon size={14} className="text-amber-400 shrink-0" />;
+  };
+
+  const renderDynamicCardIcon = (c: any, isActive: boolean) => {
+    if (c.icon && FOLDER_ICON_MAP[c.icon]) {
+      const CustomIcon = FOLDER_ICON_MAP[c.icon];
+      return <CustomIcon size={13} className={isActive ? 'text-amber-400 shrink-0' : 'text-amber-400/80 shrink-0'} />;
+    }
+    return <FileText size={13} className={isActive ? 'text-amber-400 shrink-0' : 'text-slate-500 shrink-0'} />;
+  };
 
   // Recursive Folder Tree Node Renderer
 
@@ -309,7 +337,7 @@ export default function App() {
         >
           <div className="flex items-center gap-1.5 truncate">
             {isCollapsed ? <ChevronRight size={13} className="text-slate-500 shrink-0" /> : <ChevronDown size={13} className="text-slate-500 shrink-0" />}
-            <FolderIcon size={14} className="text-amber-400 shrink-0" />
+            {renderDynamicFolderIcon(folder)}
             {renamingId === folder.id ? (
               <input
                 type="text"
@@ -366,7 +394,7 @@ export default function App() {
                   }`}
                 >
                   <div className="flex items-center gap-2 truncate">
-                    <FileText size={13} className={isActive ? 'text-amber-400' : 'text-slate-500'} />
+                    {renderDynamicCardIcon(c, isActive)}
                     {renamingId === c.id ? (
                       <input
                         type="text"
@@ -514,6 +542,50 @@ export default function App() {
       <CommandPalette isOpen={isCommandOpen} onClose={() => setIsCommandOpen(false)} />
       <VaultSettingsModal isOpen={isVaultOpen} onClose={() => setIsVaultOpen(false)} />
       <SettingsDrawer isOpen={isSettingsDrawerOpen} onClose={() => setIsSettingsDrawerOpen(false)} />
+
+      {iconPickerTarget && (
+        <FolderIconModal
+          isOpen={!!iconPickerTarget}
+          folderName={iconPickerTarget.name}
+          currentIcon={iconPickerTarget.icon}
+          onSelect={async (newIcon) => {
+            if (iconPickerTarget.type === 'folder') {
+              const f = folders.find(item => item.id === iconPickerTarget.id);
+              if (f) {
+                const updated = { ...f, icon: newIcon };
+                await StorageService.saveFolder(updated);
+                useGrimoireStore.setState(state => ({
+                  folders: state.folders.map(item => item.id === updated.id ? updated : item)
+                }));
+              }
+            } else if (iconPickerTarget.type === 'card') {
+              const c = cards.find(item => item.id === iconPickerTarget.id);
+              if (c) {
+                const updated = { ...c, icon: newIcon };
+                await updateCard(updated);
+              }
+            }
+            setIconPickerTarget(null);
+          }}
+          onClose={() => setIconPickerTarget(null)}
+        />
+      )}
+      {folderIconTarget && (
+        <FolderIconModal
+          isOpen={!!folderIconTarget}
+          folderName={folderIconTarget.name}
+          currentIcon={folderIconTarget.icon}
+          onSelect={async (newIcon) => {
+            const updated = { ...folderIconTarget, icon: newIcon };
+            await StorageService.saveFolder(updated);
+            useGrimoireStore.setState(state => ({
+              folders: state.folders.map(f => f.id === updated.id ? updated : f)
+            }));
+            setFolderIconTarget(null);
+          }}
+          onClose={() => setFolderIconTarget(null)}
+        />
+      )}
       <DiceRoller />
 
       {/* Top Master Bar */}
@@ -813,7 +885,7 @@ export default function App() {
                         }`}
                       >
                         <div className="flex items-center gap-2 truncate">
-                          <FileText size={13} className={isActive ? 'text-amber-400' : 'text-slate-500'} />
+                          {renderDynamicCardIcon(c, isActive)}
                           <span className="truncate">{c.name}</span>
                         </div>
                       </div>
@@ -877,6 +949,17 @@ export default function App() {
                   <span>Rename Folder</span>
                   <Edit2 size={12} className="text-amber-400" />
                 </button>
+                  <button
+                    onClick={() => {
+                      const f = folders.find(item => item.id === contextMenu.targetId);
+                      if (f) setIconPickerTarget({ id: f.id, name: f.name, icon: f.icon, type: 'folder' });
+                      setContextMenu(null);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-white/10 flex items-center justify-between text-xs text-amber-300 transition-colors"
+                  >
+                    <span>Change Icon</span>
+                    <Sparkles size={12} className="text-amber-400" />
+                  </button>
                 <button
                   onClick={async () => {
                     if (contextMenu.targetId) await deleteFolder(contextMenu.targetId);
@@ -914,6 +997,17 @@ export default function App() {
                   <span>Rename Note</span>
                   <Edit2 size={12} className="text-amber-400" />
                 </button>
+                  <button
+                    onClick={() => {
+                      const c = cards.find(item => item.id === contextMenu.targetId);
+                      if (c) setIconPickerTarget({ id: c.id, name: c.name, icon: c.icon, type: 'card' });
+                      setContextMenu(null);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-white/10 flex items-center justify-between text-xs text-amber-300 transition-colors"
+                  >
+                    <span>Change Icon</span>
+                    <Sparkles size={12} className="text-amber-400" />
+                  </button>
                 <button
                   onClick={async () => {
                     if (contextMenu.targetId) await deleteCard(contextMenu.targetId);
