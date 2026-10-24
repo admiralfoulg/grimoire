@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useGrimoireStore } from '../store/useGrimoireStore';
 import { DiceService, type RollResult } from '../services/dice';
+import type { PrepChecklistItem } from '../services/storage';
 import { 
   BookMarked, 
   Plus, 
@@ -10,27 +11,42 @@ import {
   Clock,
   Dices,
   CheckCircle2,
-  Circle
+  Circle,
+  Swords,
+  Map as MapIcon,
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  Split,
+  Sparkles
 } from 'lucide-react';
 
 export const SessionView: React.FC = () => {
   const { 
     sessions, 
     activeSessionId, 
-    cards, 
+    cards,
+    maps,
+    combats,
     createSession, 
     updateSession, 
     deleteSession, 
     setActiveSession,
     togglePinCardInSession,
     setActiveCard,
-    setActiveView
+    setActiveMap,
+    setActiveCombat,
+    setActiveView,
+    openToSide,
+    openTab
   } = useGrimoireStore();
 
   const currentSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
   const [newTitle, setNewTitle] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [cardToPinId, setCardToPinId] = useState('');
+  const [newChecklistText, setNewChecklistText] = useState('');
+  const [isRecapExpanded, setIsRecapExpanded] = useState(true);
   
   // Auto-log dice rolls into scratchpad toggle
   const [autoLogDice, setAutoLogDice] = useState(true);
@@ -75,6 +91,66 @@ export const SessionView: React.FC = () => {
     setActiveView('editor');
   };
 
+  // Checklist Actions
+  const handleAddChecklistItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChecklistText.trim() || !currentSession) return;
+    const newItem: PrepChecklistItem = {
+      id: crypto.randomUUID(),
+      text: newChecklistText.trim(),
+      done: false
+    };
+    const updatedList = [...(currentSession.prepChecklist || []), newItem];
+    updateSession({ ...currentSession, prepChecklist: updatedList });
+    setNewChecklistText('');
+  };
+
+  const handleToggleChecklistItem = (itemId: string) => {
+    if (!currentSession) return;
+    const updatedList = (currentSession.prepChecklist || []).map(item =>
+      item.id === itemId ? { ...item, done: !item.done } : item
+    );
+    updateSession({ ...currentSession, prepChecklist: updatedList });
+  };
+
+  const handleDeleteChecklistItem = (itemId: string) => {
+    if (!currentSession) return;
+    const updatedList = (currentSession.prepChecklist || []).filter(item => item.id !== itemId);
+    updateSession({ ...currentSession, prepChecklist: updatedList });
+  };
+
+  const handleClearFinishedChecklist = () => {
+    if (!currentSession) return;
+    const updatedList = (currentSession.prepChecklist || []).filter(item => !item.done);
+    updateSession({ ...currentSession, prepChecklist: updatedList });
+  };
+
+  // Launch Linked Combat
+  const handleLaunchCombat = (combatId: string, toSide: boolean = false) => {
+    if (setActiveCombat) setActiveCombat(combatId);
+    const target = combats.find(c => c.id === combatId);
+    if (toSide && openToSide) {
+      openToSide({ id: combatId, title: target?.name || 'Combat Tracker', type: 'combat' });
+    } else if (openTab) {
+      openTab({ id: combatId, title: target?.name || 'Combat Tracker', type: 'combat' });
+    } else {
+      setActiveView('combat');
+    }
+  };
+
+  // Launch Linked Battlemap
+  const handleLaunchMap = (mapId: string, toSide: boolean = false) => {
+    if (setActiveMap) setActiveMap(mapId);
+    const target = maps.find(m => m.id === mapId);
+    if (toSide && openToSide) {
+      openToSide({ id: mapId, title: target?.name || 'Battlemap', type: 'map' });
+    } else if (openTab) {
+      openTab({ id: mapId, title: target?.name || 'Battlemap', type: 'map' });
+    } else {
+      setActiveView('map');
+    }
+  };
+
   if (!currentSession) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0d13] p-6 text-slate-400">
@@ -92,6 +168,8 @@ export const SessionView: React.FC = () => {
   }
 
   const pinnedCards = cards.filter(c => currentSession.pinnedCardIds?.includes(c.id));
+  const checklist = currentSession.prepChecklist || [];
+  const completedCount = checklist.filter(c => c.done).length;
 
   return (
     <div className="flex-1 flex h-full bg-[#0a0d13] text-slate-200 overflow-hidden select-none">
@@ -163,7 +241,7 @@ export const SessionView: React.FC = () => {
         </div>
       </aside>
 
-      {/* Middle Column: Live DM Scratchpad & Notes */}
+      {/* Middle Column: Live DM Cockpit & Scratchpad */}
       <main className="flex-1 flex flex-col h-full bg-[#111722]/60 overflow-hidden">
         
         {/* Session Header Toolbar */}
@@ -211,24 +289,195 @@ export const SessionView: React.FC = () => {
           </div>
         </div>
 
-        {/* Live Scratchpad Editor */}
-        <div className="flex-1 p-6 overflow-y-auto">
-          <textarea
-            value={currentSession.notes}
-            onChange={e => updateSession({ ...currentSession, notes: e.target.value })}
-            placeholder="Type live notes, player decisions, treasure gained, combat events..."
-            className="w-full h-full bg-transparent text-xs text-slate-200 outline-none resize-none leading-relaxed font-mono placeholder:text-slate-600"
-          />
+        {/* Quick Launch Cockpit Bar (Linked Encounters & Battlemaps) */}
+        <div className="px-6 py-2.5 border-b border-white/5 bg-[#141b25]/30 flex flex-wrap items-center gap-4 text-xs shrink-0">
+          {/* Linked Encounter Launcher */}
+          <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-2.5 py-1">
+            <Swords size={13} className="text-red-400 shrink-0" />
+            <select
+              value={currentSession.linkedCombatId || ''}
+              onChange={e => updateSession({ ...currentSession, linkedCombatId: e.target.value || undefined })}
+              className="bg-transparent text-slate-300 outline-none text-[11px] max-w-[150px]"
+            >
+              <option value="" className="bg-[#141b25]">No Linked Encounter</option>
+              {combats.map(c => (
+                <option key={c.id} value={c.id} className="bg-[#141b25]">{c.name || 'Encounter'}</option>
+              ))}
+            </select>
+            {currentSession.linkedCombatId && (
+              <div className="flex items-center gap-1 border-l border-white/10 pl-2">
+                <button
+                  onClick={() => handleLaunchCombat(currentSession.linkedCombatId!, true)}
+                  className="p-1 hover:bg-white/10 rounded text-amber-400"
+                  title="Launch Encounter to Side Pane"
+                >
+                  <Split size={12} />
+                </button>
+                <button
+                  onClick={() => handleLaunchCombat(currentSession.linkedCombatId!, false)}
+                  className="p-1 hover:bg-white/10 rounded text-slate-300 hover:text-white"
+                  title="Open Encounter Full View"
+                >
+                  <ExternalLink size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Linked Battlemap Launcher */}
+          <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-2.5 py-1">
+            <MapIcon size={13} className="text-blue-400 shrink-0" />
+            <select
+              value={currentSession.linkedMapId || ''}
+              onChange={e => updateSession({ ...currentSession, linkedMapId: e.target.value || undefined })}
+              className="bg-transparent text-slate-300 outline-none text-[11px] max-w-[150px]"
+            >
+              <option value="" className="bg-[#141b25]">No Linked Battlemap</option>
+              {maps.map(m => (
+                <option key={m.id} value={m.id} className="bg-[#141b25]">{m.name || 'Battlemap'}</option>
+              ))}
+            </select>
+            {currentSession.linkedMapId && (
+              <div className="flex items-center gap-1 border-l border-white/10 pl-2">
+                <button
+                  onClick={() => handleLaunchMap(currentSession.linkedMapId!, true)}
+                  className="p-1 hover:bg-white/10 rounded text-amber-400"
+                  title="Launch Battlemap to Side Pane"
+                >
+                  <Split size={12} />
+                </button>
+                <button
+                  onClick={() => handleLaunchMap(currentSession.linkedMapId!, false)}
+                  className="p-1 hover:bg-white/10 rounded text-slate-300 hover:text-white"
+                  title="Open Battlemap Full View"
+                >
+                  <ExternalLink size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Middle Body: Split into Prep/Recap & Scratchpad */}
+        <div className="flex-1 flex flex-col p-6 overflow-y-auto gap-4">
+          
+          {/* Collapsible Previous Session Recap */}
+          <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
+            <button
+              onClick={() => setIsRecapExpanded(!isRecapExpanded)}
+              className="w-full px-4 py-2 bg-white/5 flex items-center justify-between text-xs font-bold text-slate-300 hover:text-white transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <Sparkles size={13} className="text-amber-400" />
+                <span>Last Session Recap (Read-Aloud Hook)</span>
+              </span>
+              {isRecapExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+            {isRecapExpanded && (
+              <div className="p-3">
+                <textarea
+                  rows={3}
+                  value={currentSession.recapNotes || ''}
+                  onChange={e => updateSession({ ...currentSession, recapNotes: e.target.value })}
+                  placeholder="Record what happened at the cliffhanger of the last session to read to your players..."
+                  className="w-full bg-black/30 border border-white/5 rounded-lg p-2.5 text-xs text-slate-300 outline-none resize-none leading-relaxed font-sans placeholder:text-slate-600 focus:border-amber-400/40"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Live Scratchpad Editor */}
+          <div className="flex-1 flex flex-col min-h-[220px]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+              Live Session Scratchpad
+            </span>
+            <textarea
+              value={currentSession.notes}
+              onChange={e => updateSession({ ...currentSession, notes: e.target.value })}
+              placeholder="Type live notes, player decisions, treasure gained, combat events..."
+              className="w-full flex-1 bg-black/30 border border-white/10 rounded-xl p-4 text-xs text-slate-200 outline-none resize-none leading-relaxed font-mono placeholder:text-slate-600 focus:border-amber-400/40"
+            />
+          </div>
         </div>
       </main>
 
-      {/* Right Column: Pinned Quick-Reference Entity Cards Rail + Roll Stream */}
+      {/* Right Column: DM Prep Checklist + Pinned Cards + Rolls Stream */}
       <aside className="w-80 border-l border-white/5 bg-[#0e121a]/95 flex flex-col shrink-0 overflow-hidden">
         
-        {/* Pinned Cards Section */}
-        <div className="p-3 border-b border-white/5 flex items-center justify-between">
+        {/* DM Prep Checklist Section */}
+        <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-            <Pin size={13} className="text-amber-400" /> Pinned Quick Cards ({pinnedCards.length})
+            <CheckSquare size={13} className="text-amber-400" /> DM Prep Checklist ({completedCount}/{checklist.length})
+          </span>
+          {completedCount > 0 && (
+            <button
+              onClick={handleClearFinishedChecklist}
+              className="text-[10px] text-slate-500 hover:text-amber-400 transition-colors"
+            >
+              Clear Done
+            </button>
+          )}
+        </div>
+
+        {/* Add Checklist Item Form */}
+        <form onSubmit={handleAddChecklistItem} className="p-2.5 border-b border-white/5 flex gap-1.5 bg-black/10">
+          <input
+            type="text"
+            placeholder="Add prep task (e.g. Prep ambush DC)..."
+            value={newChecklistText}
+            onChange={e => setNewChecklistText(e.target.value)}
+            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none focus:border-amber-400/40"
+          />
+          <button
+            type="submit"
+            className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs"
+          >
+            <Plus size={13} />
+          </button>
+        </form>
+
+        {/* Checklist Items List */}
+        <div className="max-h-44 overflow-y-auto p-2 flex flex-col gap-1 border-b border-white/5">
+          {checklist.length === 0 ? (
+            <div className="text-center text-[11px] text-slate-600 py-3 italic">
+              No prep tasks added yet.
+            </div>
+          ) : (
+            checklist.map(item => (
+              <div 
+                key={item.id} 
+                className={`flex items-center justify-between p-1.5 rounded-lg border transition-all ${
+                  item.done 
+                    ? 'bg-white/[0.02] border-white/5 text-slate-500 line-through' 
+                    : 'bg-black/30 border-white/10 text-slate-200'
+                }`}
+              >
+                <button
+                  onClick={() => handleToggleChecklistItem(item.id)}
+                  className="flex items-center gap-2 text-left flex-1 min-w-0"
+                >
+                  {item.done ? (
+                    <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                  ) : (
+                    <Circle size={13} className="text-slate-500 shrink-0" />
+                  )}
+                  <span className="text-xs truncate">{item.text}</span>
+                </button>
+                <button
+                  onClick={() => handleDeleteChecklistItem(item.id)}
+                  className="p-1 text-slate-600 hover:text-red-400 transition-colors"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Pinned Cards Section */}
+        <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+            <Pin size={13} className="text-amber-400" /> Pinned Cards ({pinnedCards.length})
           </span>
 
           <select
@@ -248,10 +497,10 @@ export const SessionView: React.FC = () => {
           </select>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 max-h-[50%] border-b border-white/5">
+        <div className="max-h-48 overflow-y-auto p-2.5 flex flex-col gap-2 border-b border-white/5">
           {pinnedCards.length === 0 ? (
-            <div className="text-center text-xs text-slate-600 py-6 italic">
-              No cards pinned. Use "+ Pin Card" to keep active entity stats visible.
+            <div className="text-center text-xs text-slate-600 py-3 italic">
+              No cards pinned. Use "+ Pin Card" above.
             </div>
           ) : (
             pinnedCards.map(c => (
@@ -299,7 +548,7 @@ export const SessionView: React.FC = () => {
         </div>
 
         {/* Live Roll Log Stream */}
-        <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
+        <div className="p-2.5 border-b border-white/5 flex items-center justify-between bg-black/20">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Dices size={13} className="text-blue-400" /> Recent Rolls
           </span>
@@ -316,7 +565,7 @@ export const SessionView: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-2.5 flex flex-col gap-1.5 font-mono text-xs">
           {recentRolls.length === 0 ? (
-            <div className="text-center text-xs text-slate-600 py-6 italic font-sans">
+            <div className="text-center text-xs text-slate-600 py-4 italic font-sans">
               No recent rolls recorded.
             </div>
           ) : (

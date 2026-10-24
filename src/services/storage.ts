@@ -257,6 +257,12 @@ export interface CombatEncounter {
   updatedAt: number;
 }
 
+export interface PrepChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 export interface SessionRecord {
   id: string;
   worldId: string;
@@ -264,6 +270,10 @@ export interface SessionRecord {
   sessionNumber: number;
   date: string;
   notes: string;
+  recapNotes?: string;
+  prepChecklist?: PrepChecklistItem[];
+  linkedCombatId?: string;
+  linkedMapId?: string;
   pinnedCardIds: string[];
   updatedAt: number;
 }
