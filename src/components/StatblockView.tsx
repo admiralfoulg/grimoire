@@ -1,7 +1,25 @@
 ﻿import React, { useState } from 'react';
-import type { StatblockData } from '../services/storage';
+import type { StatblockData, StatblockAction } from '../services/storage';
 import { DiceService } from '../services/dice';
-import { Shield, Heart, Zap, Swords, Dices, BookOpen, ChevronDown } from 'lucide-react';
+import { 
+  Shield, 
+  Heart, 
+  Zap, 
+  Swords, 
+  Dices, 
+  BookOpen, 
+  ChevronDown, 
+  ChevronRight,
+  Plus, 
+  Edit3, 
+  Trash2, 
+  X, 
+  ClipboardPaste, 
+  Sparkles,
+  Crosshair,
+  Flame,
+  Check
+} from 'lucide-react';
 
 interface StatblockViewProps {
   data: StatblockData;
@@ -22,7 +40,7 @@ export const STATBLOCK_PRESETS: Record<string, { label: string; data: StatblockD
       proficiencyBonus: 2,
       abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
       actions: [
-        { id: 'act-1', name: 'Unarmed Strike', type: 'melee', toHit: 2, damageDice: '1d4', description: 'Bludgeoning attack.' }
+        { id: 'act-1', name: 'Unarmed Strike', type: 'melee', toHit: 2, damageDice: '1d4', description: 'Bludgeoning attack.', range: '5 ft' }
       ]
     }
   },
@@ -36,8 +54,8 @@ export const STATBLOCK_PRESETS: Record<string, { label: string; data: StatblockD
       proficiencyBonus: 2,
       abilities: { str: 8, dex: 14, con: 10, int: 10, wis: 8, cha: 8 },
       actions: [
-        { id: 'act-1', name: 'Scimitar', type: 'melee', toHit: 4, damageDice: '1d6+2', description: 'Slashing blade attack.' },
-        { id: 'act-2', name: 'Shortbow', type: 'ranged', toHit: 4, damageDice: '1d6+2', description: 'Range 80/320 ft.' }
+        { id: 'act-1', name: 'Scimitar', type: 'melee', toHit: 4, damageDice: '1d6+2', damageType: 'slashing', range: '5 ft', description: 'Slashing blade attack.' },
+        { id: 'act-2', name: 'Shortbow', type: 'ranged', toHit: 4, damageDice: '1d6+2', damageType: 'piercing', range: '80/320 ft', description: 'Ranged arrow volley.' }
       ]
     }
   },
@@ -51,8 +69,8 @@ export const STATBLOCK_PRESETS: Record<string, { label: string; data: StatblockD
       proficiencyBonus: 2,
       abilities: { str: 13, dex: 12, con: 12, int: 10, wis: 11, cha: 10 },
       actions: [
-        { id: 'act-1', name: 'Spear', type: 'melee', toHit: 3, damageDice: '1d6+1', description: 'Versatile (1d8+1).' },
-        { id: 'act-2', name: 'Heavy Crossbow', type: 'ranged', toHit: 3, damageDice: '1d10+1', description: 'Range 100/400 ft.' }
+        { id: 'act-1', name: 'Spear', type: 'melee', toHit: 3, damageDice: '1d6+1', damageType: 'piercing', range: '5 ft (20/60 thrown)', description: 'Versatile (1d8+1).' },
+        { id: 'act-2', name: 'Heavy Crossbow', type: 'ranged', toHit: 3, damageDice: '1d10+1', damageType: 'piercing', range: '100/400 ft', description: 'Loading, two-handed.' }
       ]
     }
   },
@@ -66,8 +84,8 @@ export const STATBLOCK_PRESETS: Record<string, { label: string; data: StatblockD
       proficiencyBonus: 3,
       abilities: { str: 9, dex: 14, con: 11, int: 17, wis: 12, cha: 11 },
       actions: [
-        { id: 'act-1', name: 'Arcane Dagger', type: 'melee', toHit: 5, damageDice: '1d4+2', description: 'Light, finesse.' },
-        { id: 'act-2', name: 'Fire Bolt', type: 'spell', toHit: 6, damageDice: '2d10', description: 'Ranged spell attack.' }
+        { id: 'act-1', name: 'Arcane Dagger', type: 'melee', toHit: 5, damageDice: '1d4+2', damageType: 'piercing', range: '5 ft', description: 'Light, finesse.' },
+        { id: 'act-2', name: 'Fire Bolt', type: 'spell', toHit: 6, damageDice: '2d10', damageType: 'fire', range: '120 ft', description: 'Ranged spell attack.' }
       ]
     }
   },
@@ -81,16 +99,156 @@ export const STATBLOCK_PRESETS: Record<string, { label: string; data: StatblockD
       proficiencyBonus: 4,
       abilities: { str: 23, dex: 10, con: 21, int: 14, wis: 11, cha: 19 },
       actions: [
-        { id: 'act-1', name: 'Bite', type: 'melee', toHit: 10, damageDice: '2d10+6', description: 'Plus 1d6 fire damage.' },
-        { id: 'act-2', name: 'Claw', type: 'melee', toHit: 10, damageDice: '2d6+6', description: 'Slashing strike.' },
-        { id: 'act-3', name: 'Fire Breath', type: 'special', toHit: 0, damageDice: '16d6', description: 'DC 17 Dex save or take fire damage.' }
+        { id: 'act-1', name: 'Bite', type: 'melee', toHit: 10, damageDice: '2d10+6', damageType: 'piercing', range: '10 ft', description: 'Plus 1d6 fire damage.' },
+        { id: 'act-2', name: 'Claw', type: 'melee', toHit: 10, damageDice: '2d6+6', damageType: 'slashing', range: '5 ft', description: 'Slashing strike.' },
+        { id: 'act-3', name: 'Fire Breath', type: 'special', toHit: 0, damageDice: '16d6', damageType: 'fire', range: '30 ft cone', saveDc: 17, saveType: 'dex', description: 'DC 17 Dex save or take 16d6 fire damage (half on save).' }
       ]
     }
   }
 };
 
+// Heuristic statblock text parser
+export const parseRawStatblockText = (rawText: string): Partial<StatblockData> => {
+  const parsed: Partial<StatblockData> = {
+    abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+    actions: []
+  };
+
+  if (!rawText.trim()) return parsed;
+
+  // 1. Armor Class
+  const acMatch = rawText.match(/(?:Armor Class|AC)\s*[:]?\s*(\d+)/i);
+  if (acMatch) parsed.armorClass = parseInt(acMatch[1], 10);
+
+  // 2. Hit Points & Hit Dice
+  const hpMatch = rawText.match(/(?:Hit Points|HP)\s*[:]?\s*(\d+)(?:\s*\(([^)]+)\))?/i);
+  if (hpMatch) {
+    parsed.hitPoints = parseInt(hpMatch[1], 10);
+    if (hpMatch[2]) parsed.hitDice = hpMatch[2].trim();
+  }
+
+  // 3. Speed
+  const speedMatch = rawText.match(/Speed\s*[:]?\s*([^\n\r]+)/i);
+  if (speedMatch) {
+    parsed.speed = speedMatch[1].split(/[.,]/)[0].trim();
+  }
+
+  // 4. Proficiency Bonus
+  const profMatch = rawText.match(/(?:Proficiency Bonus|Prof)\s*[:]?\s*\+?(\d+)/i);
+  if (profMatch) {
+    parsed.proficiencyBonus = parseInt(profMatch[1], 10);
+  }
+
+  // 5. Abilities (STR, DEX, CON, INT, WIS, CHA)
+  const abilityRegexes = {
+    str: /\bSTR\b[^\d]*(\d+)/i,
+    dex: /\bDEX\b[^\d]*(\d+)/i,
+    con: /\bCON\b[^\d]*(\d+)/i,
+    int: /\bINT\b[^\d]*(\d+)/i,
+    wis: /\bWIS\b[^\d]*(\d+)/i,
+    cha: /\bCHA\b[^\d]*(\d+)/i
+  };
+
+  Object.entries(abilityRegexes).forEach(([ab, regex]) => {
+    const match = rawText.match(regex);
+    if (match && parsed.abilities) {
+      parsed.abilities[ab as keyof StatblockData['abilities']] = parseInt(match[1], 10);
+    }
+  });
+
+  // 6. Actions Parsing: Isolates the Actions block
+  let actionsText = rawText;
+  const actionsMatch = rawText.match(/\bActions\b([\s\S]*?)(?:\bLegendary Actions\b|\bBonus Actions\b|\bReactions\b|$)/i);
+  if (actionsMatch && actionsMatch[1].trim()) {
+    actionsText = actionsMatch[1].trim();
+  }
+
+  // Split on double newlines, line breaks before title, or sentences followed by an Action header
+  const actionSplitRegex = /(?:\r?\n\s*\r?\n|(?<=[.!?])\s+(?=[A-Z][A-Za-z0-9\s'()-]{1,35}\s*\.\s+)|\r?\n(?=[A-Z][A-Za-z0-9\s'()-]{1,35}\s*\.\s+))/g;
+  const rawChunks = actionsText.split(actionSplitRegex);
+  const actionsList: StatblockAction[] = [];
+
+  for (let chunk of rawChunks) {
+    chunk = chunk.trim().replace(/^Actions\s*/i, '');
+    if (!chunk || chunk.length < 5) continue;
+
+    // Matches Action Title with optional tags like (Recharge 6)
+    const titleMatch = chunk.match(/^([A-Za-z0-9\s'()-]{2,40})\.\s*([\s\S]*)$/);
+    if (!titleMatch) continue;
+
+    const actName = titleMatch[1].trim();
+
+    if (/^(Armor Class|Hit Points|Speed|STR|DEX|CON|INT|WIS|CHA|Senses|Languages|Challenge|Proficiency)/i.test(actName)) {
+      continue;
+    }
+
+    // Determine type
+    let actType: StatblockAction['type'] = 'special';
+    if (/ranged weapon attack|ranged spell attack|range \d+/i.test(chunk)) {
+      actType = 'ranged';
+    } else if (/melee weapon attack|melee spell attack|reach \d+/i.test(chunk)) {
+      actType = 'melee';
+    } else if (/spell attack|cantrip|casts/i.test(chunk)) {
+      actType = 'spell';
+    }
+
+    // To-hit modifier
+    const hitMatch = chunk.match(/([+-]\d+)\s*to hit/i);
+    const toHit = hitMatch ? parseInt(hitMatch[1], 10) : 0;
+
+    // Damage dice formula (e.g. "9 (2d6 + 3)", "10 (3d6)", "2d6+3")
+    const dmgMatch = chunk.match(/Hit:\s*\d+\s*\(([^)]+)\)|(?:takes|taking)\s*\d+\s*\(([^)]+)\)|(?:takes|dealing|taking)\s*(\d+d\d+(?:\s*[+-]\s*\d+)?)/i);
+    let damageDice = dmgMatch ? (dmgMatch[1] || dmgMatch[2] || dmgMatch[3]).replace(/\s+/g, '') : '';
+
+    if (!damageDice) {
+      const diceFound = chunk.match(/(\d+d\d+(?:\s*[+-]\s*\d+)?)/i);
+      if (diceFound) damageDice = diceFound[1].replace(/\s+/g, '');
+    }
+
+    // Damage type
+    const typeMatch = chunk.match(/(slashing|piercing|bludgeoning|acid|fire|cold|lightning|poison|psychic|necrotic|radiant|force)\s+damage/i);
+    const damageType = typeMatch ? typeMatch[1].toLowerCase() : undefined;
+
+    // Range / Reach
+    const rangeMatch = chunk.match(/(?:reach\s*(\d+\s*ft)|range\s*([\d/]+\s*ft)|line that is\s*([^,]+))/i);
+    const range = rangeMatch ? (rangeMatch[1] || rangeMatch[2] || rangeMatch[3]).trim() : undefined;
+
+    // Save DC
+    const saveMatch = chunk.match(/DC\s*(\d+)\s*(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma|STR|DEX|CON|INT|WIS|CHA)/i);
+    let saveDc: number | undefined;
+    let saveType: StatblockAction['saveType'] | undefined;
+    if (saveMatch) {
+      saveDc = parseInt(saveMatch[1], 10);
+      saveType = saveMatch[2].substring(0, 3).toLowerCase() as any;
+    }
+
+    actionsList.push({
+      id: crypto.randomUUID(),
+      name: actName,
+      type: actType,
+      toHit,
+      damageDice: damageDice || '',
+      range,
+      saveDc,
+      saveType,
+      damageType,
+      description: chunk
+    });
+  }
+
+  if (actionsList.length > 0) {
+    parsed.actions = actionsList;
+  }
+
+  return parsed;
+};
+
 export const StatblockView: React.FC<StatblockViewProps> = ({ data, onChange, previewMode }) => {
   const [selectedPreset, setSelectedPreset] = useState<string>('custom');
+  const [editingAction, setEditingAction] = useState<StatblockAction | null>(null);
+  const [expandedActionIds, setExpandedActionIds] = useState<Set<string>>(new Set());
+  const [isScratchpadOpen, setIsScratchpadOpen] = useState(false);
+  const [scratchpadText, setScratchpadText] = useState('');
 
   const getModifier = (score: number) => {
     const mod = Math.floor((score - 10) / 2);
@@ -115,40 +273,124 @@ export const StatblockView: React.FC<StatblockViewProps> = ({ data, onChange, pr
     }
   };
 
+  const toggleActionExpansion = (actId: string) => {
+    setExpandedActionIds(prev => {
+      const next = new Set(prev);
+      if (next.has(actId)) next.delete(actId);
+      else next.add(actId);
+      return next;
+    });
+  };
+
+  // Left-Click: Roll directly into Dice Tray via DiceService (No alert popups)
+  const handleRollAction = (e: React.MouseEvent, act: StatblockAction) => {
+    e.stopPropagation();
+
+    // 1. Attack Roll (1d20 + modifier)
+    if (act.type !== 'special' || act.toHit !== 0) {
+      const hitFormula = act.toHit >= 0 ? `1d20+${act.toHit}` : `1d20${act.toHit}`;
+      DiceService.roll(hitFormula, `[ATTACK] ${act.name}`);
+    }
+
+    // 2. Damage Roll (damageDice formula)
+    if (act.damageDice && act.damageDice.trim()) {
+      const dmgLabel = act.damageType 
+        ? `[DAMAGE] ${act.name} (${act.damageType})` 
+        : `[DAMAGE] ${act.name}`;
+      DiceService.roll(act.damageDice.trim(), dmgLabel);
+    }
+  };
+
   const handleRollAbility = (label: string, score: number) => {
     const mod = Math.floor((score - 10) / 2);
     const formula = mod >= 0 ? `1d20+${mod}` : `1d20${mod}`;
-    const result = DiceService.roll(formula, `${label.toUpperCase()} Check`);
-    alert(`[${label.toUpperCase()} CHECK] Rolled ${formula}: Result = ${result.total} (${result.dice[0].result} + ${mod})`);
+    DiceService.roll(formula, `${label.toUpperCase()} Check`);
   };
 
-  const handleRollAction = (actionName: string, toHit: number, damageDice: string) => {
-    const hitFormula = toHit >= 0 ? `1d20+${toHit}` : `1d20${toHit}`;
-    const hitRes = DiceService.roll(hitFormula, `${actionName} (To Hit)`);
-    const dmgRes = DiceService.roll(damageDice, `${actionName} (Damage)`);
-    alert(`[${actionName}]\nAttack Roll: ${hitRes.total} (${hitFormula})\nDamage Roll: ${dmgRes.total} (${damageDice})`);
+  // Action Drawer Save & Delete
+  const handleSaveActionDrawer = (actionToSave: StatblockAction) => {
+    const existingIndex = data.actions.findIndex(a => a.id === actionToSave.id);
+    let updatedActions: StatblockAction[];
+    if (existingIndex >= 0) {
+      updatedActions = data.actions.map(a => a.id === actionToSave.id ? actionToSave : a);
+    } else {
+      updatedActions = [...data.actions, actionToSave];
+    }
+    onChange({ ...data, actions: updatedActions });
+    setEditingAction(null);
+  };
+
+  const handleDeleteAction = (actId: string) => {
+    const updatedActions = data.actions.filter(a => a.id !== actId);
+    onChange({ ...data, actions: updatedActions });
+    if (editingAction?.id === actId) setEditingAction(null);
+  };
+
+  const handleAddNewAction = () => {
+    const freshAction: StatblockAction = {
+      id: crypto.randomUUID(),
+      name: 'New Attack / Action',
+      type: 'melee',
+      toHit: data.proficiencyBonus + 2,
+      damageDice: '1d8+2',
+      damageType: 'slashing',
+      range: '5 ft',
+      description: 'Melee Weapon Attack.'
+    };
+    setEditingAction(freshAction);
+  };
+
+  // Heuristic Scratchpad Application
+  const handleApplyScratchpad = () => {
+    const parsed = parseRawStatblockText(scratchpadText);
+    onChange({
+      ...data,
+      armorClass: parsed.armorClass ?? data.armorClass,
+      hitPoints: parsed.hitPoints ?? data.hitPoints,
+      hitDice: parsed.hitDice ?? data.hitDice,
+      speed: parsed.speed ?? data.speed,
+      proficiencyBonus: parsed.proficiencyBonus ?? data.proficiencyBonus,
+      abilities: {
+        ...data.abilities,
+        ...(parsed.abilities || {})
+      },
+      actions: parsed.actions && parsed.actions.length > 0 ? parsed.actions : data.actions
+    });
+    setIsScratchpadOpen(false);
+    setScratchpadText('');
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4 rounded-xl bg-black/40 border border-white/10 font-sans select-none">
+    <div className="flex flex-col gap-4 p-4 rounded-xl bg-black/40 border border-white/10 font-sans select-none relative">
       
-      {/* Top Preset Template Selector (Edit Mode Only) */}
+      {/* Top Header Controls: Presets & Scratchpad Trigger */}
       {!previewMode && (
         <div className="flex items-center justify-between pb-2 border-b border-white/5">
-          <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1.5">
-            <BookOpen size={12} className="text-amber-400" /> Template Preset:
-          </span>
-          <select
-            value={selectedPreset}
-            onChange={e => handlePresetSelect(e.target.value)}
-            className="bg-[#141b25] border border-white/10 rounded-lg px-2.5 py-1 text-xs text-amber-300 outline-none cursor-pointer"
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1.5">
+              <BookOpen size={12} className="text-amber-400" /> Template:
+            </span>
+            <select
+              value={selectedPreset}
+              onChange={e => handlePresetSelect(e.target.value)}
+              className="bg-[#141b25] border border-white/10 rounded-lg px-2 py-0.5 text-xs text-amber-300 outline-none cursor-pointer"
+            >
+              {Object.entries(STATBLOCK_PRESETS).map(([k, p]) => (
+                <option key={k} value={k} className="bg-[#141b25] text-slate-200">
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={() => setIsScratchpadOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold transition-all shadow-sm"
+            title="Paste raw monster text to auto-populate statblock"
           >
-            {Object.entries(STATBLOCK_PRESETS).map(([k, p]) => (
-              <option key={k} value={k} className="bg-[#141b25] text-slate-200">
-                {p.label}
-              </option>
-            ))}
-          </select>
+            <ClipboardPaste size={12} />
+            <span>Paste Statblock</span>
+          </button>
         </div>
       )}
 
@@ -175,14 +417,26 @@ export const StatblockView: React.FC<StatblockViewProps> = ({ data, onChange, pr
             <Heart size={11} className="text-red-400" /> Max HP
           </span>
           {previewMode ? (
-            <span className="text-base font-bold text-slate-100 font-mono mt-0.5">{data.hitPoints}</span>
+            <span className="text-base font-bold text-slate-100 font-mono mt-0.5">
+              {data.hitPoints} {data.hitDice && <span className="text-[10px] text-slate-500 font-normal">({data.hitDice})</span>}
+            </span>
           ) : (
-            <input
-              type="number"
-              value={data.hitPoints}
-              onChange={e => onChange({ ...data, hitPoints: parseInt(e.target.value, 10) || 10 })}
-              className="w-12 text-center bg-transparent text-base font-bold text-slate-100 outline-none font-mono"
-            />
+            <div className="flex items-center justify-center gap-1">
+              <input
+                type="number"
+                value={data.hitPoints}
+                onChange={e => onChange({ ...data, hitPoints: parseInt(e.target.value, 10) || 10 })}
+                className="w-10 text-center bg-transparent text-base font-bold text-slate-100 outline-none font-mono"
+              />
+              <input
+                type="text"
+                value={data.hitDice || ''}
+                placeholder="2d8"
+                onChange={e => onChange({ ...data, hitDice: e.target.value })}
+                className="w-12 text-[10px] text-slate-400 bg-black/40 border border-white/10 rounded px-1 py-0.5 outline-none font-mono text-center"
+                title="Hit Dice Formula"
+              />
+            </div>
           )}
         </div>
 
@@ -197,7 +451,7 @@ export const StatblockView: React.FC<StatblockViewProps> = ({ data, onChange, pr
               type="text"
               value={data.speed}
               onChange={e => onChange({ ...data, speed: e.target.value })}
-              className="w-16 text-center bg-transparent text-base font-bold text-slate-100 outline-none font-mono"
+              className="w-full text-center bg-transparent text-base font-bold text-slate-100 outline-none font-mono px-1"
             />
           )}
         </div>
@@ -206,7 +460,16 @@ export const StatblockView: React.FC<StatblockViewProps> = ({ data, onChange, pr
           <span className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1">
             <Dices size={11} className="text-purple-400" /> Prof
           </span>
-          <span className="text-base font-bold text-amber-400 font-mono mt-0.5">+{data.proficiencyBonus}</span>
+          {previewMode ? (
+            <span className="text-base font-bold text-amber-400 font-mono mt-0.5">+{data.proficiencyBonus}</span>
+          ) : (
+            <input
+              type="number"
+              value={data.proficiencyBonus}
+              onChange={e => onChange({ ...data, proficiencyBonus: parseInt(e.target.value, 10) || 2 })}
+              className="w-10 text-center bg-transparent text-base font-bold text-amber-400 outline-none font-mono"
+            />
+          )}
         </div>
       </div>
 
@@ -221,7 +484,7 @@ export const StatblockView: React.FC<StatblockViewProps> = ({ data, onChange, pr
               key={key}
               onClick={() => handleRollAbility(key, score)}
               className="flex flex-col items-center justify-center p-2 rounded-xl bg-white/5 border border-white/5 hover:border-amber-500/40 hover:bg-amber-500/10 transition-all cursor-pointer group"
-              title={`Click to roll ${key.toUpperCase()} check`}
+              title={`Click to roll ${key.toUpperCase()} check into dice tray`}
             >
               <span className="text-[10px] font-bold uppercase text-slate-400 group-hover:text-amber-300">
                 {key}
@@ -247,35 +510,348 @@ export const StatblockView: React.FC<StatblockViewProps> = ({ data, onChange, pr
         })}
       </div>
 
-      {/* Action / Attack Roster */}
+      {/* Actions & Attacks Header */}
       <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
-        <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1">
-          <Swords size={12} className="text-amber-400" /> Actions & Attacks
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+            <Swords size={13} className="text-amber-400" /> Actions & Attacks
+          </span>
 
-        <div className="flex flex-col gap-1.5">
-          {data.actions.map(act => (
-            <div
-              key={act.id}
-              className="flex items-center justify-between p-2 rounded-lg bg-white/5 border border-white/5 hover:border-white/10 text-xs"
+          {!previewMode && (
+            <button
+              onClick={handleAddNewAction}
+              className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 font-semibold px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
             >
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-200">{act.name}</span>
-                <span className="text-[10px] text-slate-500">({act.type})</span>
+              <Plus size={11} /> Add Action
+            </button>
+          )}
+        </div>
+
+        {/* Action List */}
+        <div className="flex flex-col gap-2">
+          {data.actions.map(act => {
+            const isExpanded = expandedActionIds.has(act.id);
+
+            return (
+              <div
+                key={act.id}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setEditingAction(act);
+                }}
+                className="flex flex-col rounded-xl bg-[#141b25] border border-white/10 hover:border-white/20 transition-all overflow-hidden"
+              >
+                {/* Main Action Strip */}
+                <div 
+                  onClick={() => toggleActionExpansion(act.id)}
+                  className="p-2.5 flex items-center justify-between cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleActionExpansion(act.id);
+                      }}
+                      className="text-slate-500 group-hover:text-slate-300 transition-colors"
+                    >
+                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+
+                    <span className="font-bold text-xs text-slate-100 truncate">{act.name}</span>
+
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/40 text-slate-400 border border-white/5 font-mono capitalize">
+                      {act.type}
+                    </span>
+
+                    {act.range && (
+                      <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">
+                        • {act.range}
+                      </span>
+                    )}
+
+                    {act.saveDc && (
+                      <span className="text-[10px] text-purple-300 font-semibold px-1 rounded bg-purple-500/10 border border-purple-500/20 font-mono">
+                        DC {act.saveDc} {act.saveType?.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Left-Click Action Roll Pill */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => handleRollAction(e, act)}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/35 font-mono text-[11px] font-bold transition-all shadow-sm flex items-center gap-1"
+                      title="Left-click: Roll Attack & Damage directly into Dice Tray | Right-click: Edit Action"
+                    >
+                      <Dices size={11} className="text-amber-400" />
+                      <span>{act.toHit >= 0 ? `+${act.toHit}` : act.toHit} to hit</span>
+                      <span className="opacity-40">•</span>
+                      <span>{act.damageDice}</span>
+                    </button>
+
+                    {!previewMode && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingAction(act);
+                        }}
+                        className="p-1 rounded text-slate-500 hover:text-slate-200 hover:bg-white/5 transition-colors"
+                        title="Edit Action"
+                      >
+                        <Edit3 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dropdown Expandable Details Drawer */}
+                {isExpanded && (
+                  <div className="px-3 pb-3 pt-1 border-t border-white/5 text-xs text-slate-300 flex flex-col gap-1.5 bg-black/20">
+                    {act.description && (
+                      <p className="leading-relaxed whitespace-pre-wrap text-slate-300 text-[11px]">
+                        {act.description}
+                      </p>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-3 text-[10px] text-slate-400 font-mono pt-1">
+                      {act.range && <span>Range: <strong className="text-slate-200">{act.range}</strong></span>}
+                      {act.damageType && <span>Damage Type: <strong className="text-amber-300 uppercase">{act.damageType}</strong></span>}
+                      {act.saveDc && <span>Saving Throw: <strong className="text-purple-300">DC {act.saveDc} {act.saveType?.toUpperCase()}</strong></span>}
+                    </div>
+                  </div>
+                )}
               </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Action Edit Drawer Modal */}
+      {editingAction && (
+        <div 
+          onClick={() => setEditingAction(null)}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className="w-full max-w-lg rounded-2xl bg-[#151c27] border border-white/15 p-5 shadow-2xl flex flex-col gap-4 text-xs select-none"
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+              <span className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                <Edit3 size={14} className="text-amber-400" />
+                Edit Action: {editingAction.name}
+              </span>
+              <button 
+                onClick={() => setEditingAction(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Action Name</label>
+                <input
+                  type="text"
+                  value={editingAction.name}
+                  onChange={e => setEditingAction({ ...editingAction, name: e.target.value })}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Action Type</label>
+                <select
+                  value={editingAction.type}
+                  onChange={e => setEditingAction({ ...editingAction, type: e.target.value as any })}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none capitalize"
+                >
+                  <option value="melee">Melee Attack</option>
+                  <option value="ranged">Ranged Attack</option>
+                  <option value="spell">Spell Attack</option>
+                  <option value="special">Special / Save</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">To-Hit Modifier (+ / -)</label>
+                <input
+                  type="number"
+                  value={editingAction.toHit}
+                  onChange={e => setEditingAction({ ...editingAction, toHit: parseInt(e.target.value, 10) || 0 })}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Damage Formula</label>
+                <input
+                  type="text"
+                  value={editingAction.damageDice}
+                  placeholder="e.g. 2d6+4"
+                  onChange={e => setEditingAction({ ...editingAction, damageDice: e.target.value })}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono outline-none"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Range / Reach</label>
+                <input
+                  type="text"
+                  value={editingAction.range || ''}
+                  placeholder="e.g. 5 ft or 60/120 ft"
+                  onChange={e => setEditingAction({ ...editingAction, range: e.target.value })}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Damage Type</label>
+                <input
+                  type="text"
+                  value={editingAction.damageType || ''}
+                  placeholder="slashing, fire, radiant..."
+                  onChange={e => setEditingAction({ ...editingAction, damageType: e.target.value })}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Save DC (Optional)</label>
+                <input
+                  type="number"
+                  value={editingAction.saveDc || ''}
+                  placeholder="e.g. 15"
+                  onChange={e => setEditingAction({ ...editingAction, saveDc: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Save Ability</label>
+                <select
+                  value={editingAction.saveType || 'dex'}
+                  onChange={e => setEditingAction({ ...editingAction, saveType: e.target.value as any })}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none uppercase font-mono"
+                >
+                  <option value="str">Strength (STR)</option>
+                  <option value="dex">Dexterity (DEX)</option>
+                  <option value="con">Constitution (CON)</option>
+                  <option value="int">Intelligence (INT)</option>
+                  <option value="wis">Wisdom (WIS)</option>
+                  <option value="cha">Charisma (CHA)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase">Rules Description</label>
+              <textarea
+                rows={3}
+                value={editingAction.description}
+                onChange={e => setEditingAction({ ...editingAction, description: e.target.value })}
+                className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-slate-200 outline-none resize-none leading-relaxed"
+                placeholder="Full attack text, secondary effects, conditions caused..."
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => handleDeleteAction(editingAction.id)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors font-semibold"
+              >
+                <Trash2 size={13} />
+                <span>Delete Action</span>
+              </button>
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handleRollAction(act.name, act.toHit, act.damageDice)}
-                  className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 font-mono text-[11px] font-semibold transition-colors"
+                  type="button"
+                  onClick={() => setEditingAction(null)}
+                  className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white"
                 >
-                  +{act.toHit} to hit • {act.damageDice}
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveActionDrawer(editingAction)}
+                  className="flex items-center gap-1 px-4 py-1.5 rounded-lg bg-amber-500 text-black font-bold hover:bg-amber-400 transition-colors shadow-md"
+                >
+                  <Check size={14} />
+                  <span>Save Action</span>
                 </button>
               </div>
             </div>
-          ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Heuristic Statblock Scratchpad Modal */}
+      {isScratchpadOpen && (
+        <div 
+          onClick={() => setIsScratchpadOpen(false)}
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className="w-full max-w-2xl rounded-2xl bg-[#141b25] border border-white/15 p-6 shadow-2xl flex flex-col gap-4 text-xs font-sans select-none"
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-amber-400" />
+                <span className="text-sm font-bold text-slate-100">
+                  Heuristic "Paste Statblock" Scratchpad
+                </span>
+              </div>
+              <button onClick={() => setIsScratchpadOpen(false)} className="text-slate-400 hover:text-white p-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Paste raw creature text from D&D Beyond, 5e.tools, SRD, or adventure books. The parser extracts <strong>AC, HP, Speed, Ability Scores,</strong> and creates distinct <strong>Actions</strong> with to-hit bonuses and damage dice.
+            </p>
+
+            <textarea
+              rows={11}
+              value={scratchpadText}
+              onChange={e => setScratchpadText(e.target.value)}
+              placeholder="Paste raw statblock text here... (e.g. Goblin, AC 15, HP 7 (2d6), STR 8 DEX 14... Actions: Scimitar. Melee Weapon Attack: +4 to hit...)"
+              className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-slate-200 outline-none resize-none font-mono text-[11px] leading-relaxed placeholder:text-slate-600 focus:border-amber-500/40"
+            />
+
+            <div className="flex items-center justify-between pt-2 border-t border-white/10">
+              <span className="text-[10px] text-slate-500">
+                Non-destructive: Updates statblock fields and actions.
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsScratchpadOpen(false)}
+                  className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!scratchpadText.trim()}
+                  onClick={handleApplyScratchpad}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-amber-500 text-black font-bold hover:bg-amber-400 transition-colors shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Sparkles size={13} />
+                  <span>Parse & Apply to Card</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

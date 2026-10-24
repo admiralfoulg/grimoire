@@ -41,14 +41,20 @@ export interface StatblockData {
     wis: number;
     cha: number;
   };
-  actions: {
-    id: string;
-    name: string;
-    type: 'melee' | 'ranged' | 'spell' | 'special';
-    toHit: number;
-    damageDice: string;
-    description: string;
-  }[];
+  actions: StatblockAction[];
+}
+
+export interface StatblockAction {
+  id: string;
+  name: string;
+  type: 'melee' | 'ranged' | 'spell' | 'special';
+  toHit: number;
+  damageDice: string;
+  description: string;
+  range?: string;
+  saveDc?: number;
+  saveType?: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
+  damageType?: string;
 }
 
 export interface CardBlock {
@@ -135,6 +141,12 @@ export interface MapToken {
   sightType?: SightType;
   aoe?: TokenAoE;
   conditions?: string[];
+  movementMode?: 'still' | 'wander' | 'patrol';
+  patrolPath?: { x: number; y: number }[];
+  wanderRadius?: number;
+  wanderBounds?: { minX: number; maxX: number; minY: number; maxY: number };
+  wanderPolygon?: { x: number; y: number }[];
+  moveInterval?: number;
 }
 
 export interface SavedTokenTemplate {
