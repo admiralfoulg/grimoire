@@ -57,6 +57,10 @@ import {
   Volume2,
   Play,
   Square as StopSquare
+,
+  Footprints,
+  Route,
+  Pause
 } from 'lucide-react';
 
 const DND_CONDITIONS = [
@@ -180,8 +184,99 @@ const segmentIntersectsSegment = (
   return (t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0);
 };
 
+
+// Parses a name into a normalized base and distinct index: "concordants 2" -> { base: "concordant", num: "2" }
+const parseEntityKey = (name: string): string => {
+  const clean = (name || '').trim().toLowerCase();
+  const match = clean.match(/^(.*?)(?:\s*#?\s*(\d+))?$/);
+  let base = (match?.[1] || clean).trim();
+  const num = match?.[2] || '';
+  base = base.replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+  return num ? `${base}:${num}` : base;
+};
+
+// Returns next auto-numbered name: e.g. "Goblin" -> "Goblin 1", "Goblin 2"
+const getAutoNumberedTokenName = (rawName: string, existingTokens: { name: string }[]): string => {
+  const clean = (rawName || '').trim();
+  const match = clean.match(/^(.*?)(?:\s*#?\s*(\d+))?$/);
+  const baseName = (match?.[1] || clean).trim();
+  const baseLower = baseName.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+
+  let highestNum = 0;
+  let hasBaseNameMatch = false;
+
+  for (const t of existingTokens) {
+    const tClean = (t.name || '').trim();
+    const tMatch = tClean.match(/^(.*?)(?:\s*#?\s*(\d+))?$/);
+    const tBase = (tMatch?.[1] || tClean).trim();
+    const tBaseLower = tBase.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+
+    if (tBaseLower === baseLower) {
+      hasBaseNameMatch = true;
+      const num = parseInt(tMatch?.[2] || '0', 10);
+      if (!isNaN(num) && num > highestNum) {
+        highestNum = num;
+      }
+    }
+  }
+
+  if (highestNum > 0) {
+    return `${baseName} ${highestNum + 1}`;
+  }
+  return hasBaseNameMatch ? `${baseName} 2` : `${baseName} 1`;
+};
+
+
+// Traces all grid cell coordinates (col, row) between two points
+const getTilesAlongLine = (x1: number, y1: number, x2: number, y2: number, cols: number, rows: number): { col: number; row: number }[] => {
+  let c0 = Math.floor((x1 / 100) * cols);
+  let r0 = Math.floor((y1 / 100) * rows);
+  const c1 = Math.floor((x2 / 100) * cols);
+  const r1 = Math.floor((y2 / 100) * rows);
+
+  const tiles: { col: number; row: number }[] = [];
+  const dx = Math.abs(c1 - c0);
+  const dy = Math.abs(r1 - r0);
+  const sx = c0 < c1 ? 1 : -1;
+  const sy = r0 < r1 ? 1 : -1;
+  let err = dx - dy;
+
+  while (true) {
+    tiles.push({ col: c0, row: r0 });
+    if (c0 === c1 && r0 === r1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      c0 += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      r0 += sy;
+    }
+  }
+  return tiles;
+};
+
+
+// Checks if a 2D coordinate is inside an arbitrary polygon
+const isPointInsidePolygon = (x: number, y: number, polygon: { x: number; y: number }[]): boolean => {
+  if (!polygon || polygon.length < 3) return true;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
 export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
-  const { 
+  const {
+    cards,
+    updateCard,
+    setActiveCard,
+    setActiveView,
     maps, 
     activeMapId, 
     combats,
@@ -224,6 +319,9 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
 
   const [isProjecting, setIsProjecting] = useState(false);
   const [isAddingPin, setIsAddingPin] = useState(false);
+
+
+
   const [newPinLabel, setNewPinLabel] = useState('');
   const [newPinColor, setNewPinColor] = useState('#f59e0b');
   const [newPinSecret, setNewPinSecret] = useState(false);
@@ -256,6 +354,8 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
   const [showFogMenu, setShowFogMenu] = useState(false);
   const [showGridDropdown, setShowGridDropdown] = useState(false);
   const [showAddTokenMenu, setShowAddTokenMenu] = useState(false);
+  const [tokenTrayTab, setTokenTrayTab] = useState<'codex' | 'party' | 'custom'>('codex');
+  const [codexSearchQuery, setCodexSearchQuery] = useState('');
   const [vaultSaveSuccess, setVaultSaveSuccess] = useState(false);
 
   // Context Menus
@@ -301,6 +401,7 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
   // Grid Settings
   const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
   const [showGridOverlay, setShowGridOverlay] = useState<boolean>(false);
+  const [gridStyle, setGridStyle] = useState<'dark' | 'bold' | 'light'>('dark');
   const gridCols = activeMap?.gridCols ?? 25;
   const gridRows = activeMap?.gridRows ?? 30;
 
@@ -620,6 +721,126 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedToken, isTactical, activeMap, gridCols, gridRows, solidObstaclesSet, updateTokenPosition, deleteTokenFromMap, setSelectedTokenId, revealVisionForToken]);
 
+  // Autonomous Movement & Waypoint State
+  const [isSimulationRunning, setIsSimulationRunning] = useState<boolean>(true);
+  const [isRecordingPath, setIsRecordingPath] = useState<boolean>(false);
+  const [isDrawingBoundary, setIsDrawingBoundary] = useState<boolean>(false);
+  const [activeDrawingPolygon, setActiveDrawingPolygon] = useState<{ x: number; y: number }[]>([]);
+  const boundaryStartRef = useRef<{ x: number; y: number } | null>(null);
+  const patrolIndicesRef = useRef<Record<string, number>>({});
+  const lastMoveTimesRef = useRef<Record<string, number>>({});
+  const tokenOriginsRef = useRef<Record<string, { x: number; y: number }>>({});
+
+  // Autonomous wandering and patrol loop
+  useEffect(() => {
+    if (!isSimulationRunning || !activeMap || !activeMap.tokens) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const cols = gridCols || 25;
+      const rows = gridRows || 25;
+      const cellW = 100 / cols;
+      const cellH = 100 / rows;
+
+      activeMap.tokens.forEach(token => {
+        if (token.isPlayer || !token.movementMode || token.movementMode === 'still') return;
+
+        const intervalMs = (token.moveInterval || 3) * 1000;
+        const lastMove = lastMoveTimesRef.current[token.id] || 0;
+        if (now - lastMove < intervalMs) return;
+
+        const currentPos = tokenCoordsRef.current[token.id] || { x: token.x, y: token.y };
+
+        // 1. PATROL MODE: Straight grid walking from waypoint to waypoint
+        if (token.movementMode === 'patrol' && token.patrolPath && token.patrolPath.length > 1) {
+          let targetIndex = patrolIndicesRef.current[token.id] ?? 0;
+          if (targetIndex >= token.patrolPath.length) targetIndex = 0;
+          let target = token.patrolPath[targetIndex];
+
+          const currC = Math.floor((currentPos.x / 100) * cols);
+          const currR = Math.floor((currentPos.y / 100) * rows);
+          const targetC = Math.floor((target.x / 100) * cols);
+          const targetR = Math.floor((target.y / 100) * rows);
+
+          // If reached or already at this waypoint, cycle to the next
+          if (currC === targetC && currR === targetR) {
+            targetIndex = (targetIndex + 1) % token.patrolPath.length;
+            patrolIndicesRef.current[token.id] = targetIndex;
+            target = token.patrolPath[targetIndex];
+          }
+
+          const nextTargetC = Math.floor((target.x / 100) * cols);
+          const nextTargetR = Math.floor((target.y / 100) * rows);
+
+          let stepC = currC;
+          let stepR = currR;
+
+          // Step strictly along the straight vector
+          if (stepC < nextTargetC) stepC++;
+          else if (stepC > nextTargetC) stepC--;
+
+          if (stepR < nextTargetR) stepR++;
+          else if (stepR > nextTargetR) stepR--;
+
+          const nextX = (stepC + 0.5) * cellW;
+          const nextY = (stepR + 0.5) * cellH;
+
+          if (!isMoveBlocked(currentPos.x, currentPos.y, nextX, nextY)) {
+            tokenCoordsRef.current[token.id] = { x: nextX, y: nextY };
+            lastMoveTimesRef.current[token.id] = now;
+            updateTokenPosition(activeMap.id, token.id, nextX, nextY);
+            forceUpdate({});
+          } else {
+            // Blocked by obstacle or door - advance to next waypoint
+            patrolIndicesRef.current[token.id] = (targetIndex + 1) % token.patrolPath.length;
+          }
+        } 
+        // 2. WANDER MODE: Safe roaming inside polygon/boundary
+        else if (token.movementMode === 'wander') {
+          const directions = [
+            { dx: 0, dy: -cellH },
+            { dx: 0, dy: cellH },
+            { dx: -cellW, dy: 0 },
+            { dx: cellW, dy: 0 },
+            { dx: -cellW, dy: -cellH },
+            { dx: cellW, dy: -cellH },
+            { dx: -cellW, dy: cellH },
+            { dx: cellW, dy: cellH }
+          ];
+
+          const shuffled = [...directions].sort(() => Math.random() - 0.5);
+
+          for (const dir of shuffled) {
+            const candX = Math.max(cellW / 2, Math.min(100 - cellW / 2, currentPos.x + dir.dx));
+            const candY = Math.max(cellH / 2, Math.min(100 - cellH / 2, currentPos.y + dir.dy));
+
+            // Check Multi-point Polygon Boundary
+            if (token.wanderPolygon && token.wanderPolygon.length >= 3) {
+              if (!isPointInsidePolygon(candX, candY, token.wanderPolygon)) {
+                continue;
+              }
+            } else if (token.wanderBounds) {
+              const b = token.wanderBounds;
+              if (candX < b.minX || candX > b.maxX || candY < b.minY || candY > b.maxY) {
+                continue;
+              }
+            }
+
+            if (!isMoveBlocked(currentPos.x, currentPos.y, candX, candY)) {
+              tokenCoordsRef.current[token.id] = { x: candX, y: candY };
+              lastMoveTimesRef.current[token.id] = now;
+              updateTokenPosition(activeMap.id, token.id, candX, candY);
+              forceUpdate({});
+              break;
+            }
+          }
+        }
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isSimulationRunning, activeMap, gridCols, gridRows, isMoveBlocked, updateTokenPosition]);
+
   const snapCoordinate = (coordPercent: number, totalUnits: number, size: 'medium' | 'large' | 'huge' = 'medium') => {
     if (!snapToGrid || totalUnits <= 0) return coordPercent;
     const unitPercent = 100 / totalUnits;
@@ -711,8 +932,15 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
     if (isProjecting && activeMap && activeMap.imageUrl) {
       const publicPins = (activeMap.pins || []).filter(p => !p.isSecret);
       const publicZones = (activeMap.zones || []).filter(z => !z.isSecret);
-      const secretTokenIds = new Set((activeMap.tokens || []).filter(t => t.isSecret).map(t => t.id));
-      const secretTokenNames = new Set((activeMap.tokens || []).filter(t => t.isSecret).map(t => t.name.toLowerCase()));
+      const secretTokens = (activeMap.tokens || []).filter(t => t.isSecret);
+      const secretTokenIds = new Set(secretTokens.map(t => t.id));
+      const secretEntityKeys = new Set(secretTokens.map(t => parseEntityKey(t.name)));
+
+      const isCombatantSecret = (c: { id: string; name: string }) => {
+        if (secretTokenIds.has(c.id)) return true;
+        const cKey = parseEntityKey(c.name);
+        return secretEntityKeys.has(cKey);
+      };
 
       const publicTokens = (activeMap.tokens || []).filter(t => !t.isSecret).map(t => ({
         id: t.id,
@@ -733,10 +961,10 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
       let projectedCombat: { round: number; currentTurnIndex: number; combatants: PlayerCombatantView[] } | null = null;
       if (activeCombat && activeCombat.combatants.length > 0) {
         const publicCombatants: PlayerCombatantView[] = [];
-        let publicActiveTurnIndex = 0;
+        let publicActiveTurnIndex = -1;
 
         activeCombat.combatants.forEach((c, idx) => {
-          const isSecret = secretTokenIds.has(c.id) || secretTokenNames.has(c.name.toLowerCase());
+          const isSecret = isCombatantSecret(c);
           if (!isSecret) {
             if (idx === activeCombat.currentTurnIndex) {
               publicActiveTurnIndex = publicCombatants.length;
@@ -785,8 +1013,15 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
     } else {
       const publicPins = (activeMap.pins || []).filter(p => !p.isSecret);
       const publicZones = (activeMap.zones || []).filter(z => !z.isSecret);
-      const secretTokenIds = new Set((activeMap.tokens || []).filter(t => t.isSecret).map(t => t.id));
-      const secretTokenNames = new Set((activeMap.tokens || []).filter(t => t.isSecret).map(t => t.name.toLowerCase()));
+      const secretTokens = (activeMap.tokens || []).filter(t => t.isSecret);
+      const secretTokenIds = new Set(secretTokens.map(t => t.id));
+      const secretEntityKeys = new Set(secretTokens.map(t => parseEntityKey(t.name)));
+
+      const isCombatantSecret = (c: { id: string; name: string }) => {
+        if (secretTokenIds.has(c.id)) return true;
+        const cKey = parseEntityKey(c.name);
+        return secretEntityKeys.has(cKey);
+      };
 
       const publicTokens = (activeMap.tokens || []).filter(t => !t.isSecret).map(t => ({
         id: t.id,
@@ -807,10 +1042,10 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
       let projectedCombat: { round: number; currentTurnIndex: number; combatants: PlayerCombatantView[] } | null = null;
       if (activeCombat && activeCombat.combatants.length > 0) {
         const publicCombatants: PlayerCombatantView[] = [];
-        let publicActiveTurnIndex = 0;
+        let publicActiveTurnIndex = -1;
 
         activeCombat.combatants.forEach((c, idx) => {
-          const isSecret = secretTokenIds.has(c.id) || secretTokenNames.has(c.name.toLowerCase());
+          const isSecret = isCombatantSecret(c);
           if (!isSecret) {
             if (idx === activeCombat.currentTurnIndex) {
               publicActiveTurnIndex = publicCombatants.length;
@@ -936,6 +1171,30 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
     const rect = mapContainerRef.current.getBoundingClientRect();
     const rawX = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
     const rawY = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+
+    // Multi-Point Boundary Area Drawing (Left-click adds corners)
+    if (isDrawingBoundary && selectedToken) {
+      const snapped = snapPointToGrid(rawX, rawY);
+      const updatedPoly = [...activeDrawingPolygon, snapped];
+      setActiveDrawingPolygon(updatedPoly);
+      updateToken(activeMap.id, {
+        ...selectedToken,
+        movementMode: 'wander',
+        wanderPolygon: updatedPoly
+      });
+      return;
+    }
+
+    // Patrol Waypoints Drawing (Left-click adds path nodes)
+    if (isRecordingPath && selectedToken) {
+      const snapped = snapPointToGrid(rawX, rawY);
+      const existing = selectedToken.patrolPath && selectedToken.patrolPath.length > 0
+        ? selectedToken.patrolPath
+        : [{ x: selectedToken.x, y: selectedToken.y }];
+      const updatedPath = [...existing, snapped];
+      updateToken(activeMap.id, { ...selectedToken, movementMode: 'patrol', patrolPath: updatedPath });
+      return;
+    }
 
     // Continuous Vector Wall/Door/Window Chaining
     if (['addWall', 'addDoor', 'addSecretDoor', 'addWindow'].includes(toolMode)) {
@@ -1217,23 +1476,59 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
     updateToken(activeMap.id, { ...token, isSecret: !token.isSecret });
   };
 
-  const adjustTokenHp = (token: MapToken, amount: number) => {
+      // Synchronized Token HP adjustment (strictly syncs Token <-> Combat Tracker; Card is a 1-way hub)
+  const adjustTokenHp = async (token: MapToken, amount: number) => {
     if (!activeMap) return;
-    const newHp = Math.max(0, (token.hpCurrent || 0) + amount);
+    const newHp = Math.max(0, (token.hpCurrent ?? 0) + amount);
+    await setTokenExactHp(token, newHp);
+  };
+
+  const setTokenExactHp = async (token: MapToken, exactVal: number) => {
+    if (!activeMap) return;
+    const newHp = Math.max(0, exactVal);
+
+    // 1. Update Map Token
     updateToken(activeMap.id, { ...token, hpCurrent: newHp });
+
+    // 2. Sync to Active Combat Tracker
+    if (activeCombat && activeCombat.combatants) {
+      const hasMatch = activeCombat.combatants.some(
+        c => c.id === token.id || c.name.toLowerCase() === token.name.toLowerCase()
+      );
+      if (hasMatch) {
+        const updatedCombatants = activeCombat.combatants.map(c => 
+          (c.id === token.id || c.name.toLowerCase() === token.name.toLowerCase())
+            ? { ...c, hpCurrent: newHp }
+            : c
+        );
+        updateCombat({ ...activeCombat, combatants: updatedCombatants });
+      }
+    }
   };
 
   const adjustCombatantHp = (combatant: Combatant, delta: number) => {
     if (!activeCombat) return;
     const newHp = Math.max(0, combatant.hpCurrent + delta);
-    const updatedCombatants = activeCombat.combatants.map(c => c.id === combatant.id ? { ...c, hpCurrent: newHp } : c);
-    updateCombat({ ...activeCombat, combatants: updatedCombatants });
+    setCombatantExactHp(combatant, newHp);
   };
 
-  const setCombatantExactHp = (combatant: Combatant, exactVal: number) => {
+  const setCombatantExactHp = async (combatant: Combatant, exactVal: number) => {
     if (!activeCombat) return;
-    const updatedCombatants = activeCombat.combatants.map(c => c.id === combatant.id ? { ...c, hpCurrent: Math.max(0, exactVal) } : c);
+    const newHp = Math.max(0, exactVal);
+
+    // 1. Update Initiative Combatant
+    const updatedCombatants = activeCombat.combatants.map(c => c.id === combatant.id ? { ...c, hpCurrent: newHp } : c);
     updateCombat({ ...activeCombat, combatants: updatedCombatants });
+
+    // 2. Sync to matching Token on active map
+    if (activeMap && activeMap.tokens) {
+      const matchingToken = activeMap.tokens.find(
+        t => t.id === combatant.id || t.name.toLowerCase() === combatant.name.toLowerCase()
+      );
+      if (matchingToken) {
+        updateToken(activeMap.id, { ...matchingToken, hpCurrent: newHp });
+      }
+    }
   };
 
   const toggleTokenCondition = (token: MapToken, condition: string) => {
@@ -1293,6 +1588,53 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
     }
     setShowAddTokenMenu(false);
     setToolMode('select');
+  };
+
+  
+  // Spawn token directly from a Codex Monster/NPC Card
+  const handleSpawnFromCard = (card: any, targetX?: number, targetY?: number) => {
+    if (!activeMap) return;
+
+    // Search for a statblock block in the card
+    const statBlock = (card.blocks || []).find((b: any) => b.blockType === 'statblock' && b.statblock);
+    const sb = statBlock ? statBlock.statblock : null;
+
+    const hp = sb?.hitPoints || 10;
+    const ac = sb?.armorClass || 10;
+    const isPlayer = card.type === 'character';
+
+    // Auto-derive token size if statblock has size hints
+    let tokenSize: 'medium' | 'large' | 'huge' = 'medium';
+    if (card.content && /\b(huge|gargantuan)\b/i.test(card.content)) tokenSize = 'huge';
+    else if (card.content && /\blarge\b/i.test(card.content)) tokenSize = 'large';
+
+    const cols = gridCols || 25;
+    const rows = gridRows || 25;
+    const cellW = 100 / cols;
+    const cellH = 100 / rows;
+
+    const spawnX = targetX !== undefined ? targetX : snapCoordinate(50, cellW);
+    const spawnY = targetY !== undefined ? targetY : snapCoordinate(50, cellH);
+
+    const tokenColor = isPlayer ? '#3b82f6' : card.type === 'monster' ? '#dc2626' : '#f59e0b';
+
+    addTokenToMap(activeMap.id, {
+      x: spawnX,
+      y: spawnY,
+      name: card.name,
+      imageUrl: card.imageUrl,
+      color: tokenColor,
+      size: tokenSize,
+      hpCurrent: hp,
+      hpMax: hp,
+      ac,
+      cardId: card.id,
+      isPlayer,
+      isSecret: false,
+      movementMode: 'still'
+    });
+
+    setShowAddTokenMenu(false);
   };
 
   const handleSpawnCustomTokenCenter = () => {
@@ -1626,7 +1968,30 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
                   )}
                 </div>
 
-                <div className="h-px bg-white/5" />
+                
+                      {/* Grid Line Tone / Darkness Controls */}
+                      {showGridOverlay && (
+                        <div className="flex flex-col gap-1 pt-0.5">
+                          <span className="text-[9px] uppercase font-bold text-slate-500">Grid Line Darkness</span>
+                          <div className="grid grid-cols-3 gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
+                            {(['dark', 'bold', 'light'] as const).map(style => (
+                              <button
+                                key={style}
+                                onClick={() => setGridStyle(style)}
+                                className={`py-1 text-[10px] font-bold rounded capitalize transition-all ${
+                                  gridStyle === style
+                                    ? 'bg-blue-500 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                {style === 'bold' ? 'Heavy' : style}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="h-px bg-white/5" />
 
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] uppercase font-bold text-blue-400 flex items-center justify-between px-2">
@@ -2391,73 +2756,166 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
                   {showAddTokenMenu && (
                     <div 
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute top-11 right-0 z-50 p-3 rounded-2xl bg-[#121824] border border-white/15 shadow-2xl flex flex-col gap-3 w-84 animate-in fade-in max-h-[85vh] overflow-y-auto"
+                      className="absolute top-11 right-0 z-50 p-3.5 rounded-2xl bg-[#121824] border border-white/15 shadow-2xl flex flex-col gap-3 w-96 animate-in fade-in max-h-[88vh] overflow-y-auto text-xs font-sans select-none"
                     >
-                      <div className="flex items-center justify-between border-b border-white/5 pb-1.5">
-                        <span className="text-[10px] uppercase font-bold text-red-400 flex items-center gap-1.5">
-                          <UserPlus size={12} /> Deploy Token
-                        </span>
-                        <button onClick={() => setShowAddTokenMenu(false)} className="text-slate-500 hover:text-white">
-                          <X size={12} />
+                      {/* Header with Tab Selectors */}
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-100">
+                          <Users size={14} className="text-amber-400" />
+                          <span>Deploy Tokens</span>
+                        </div>
+                        <button onClick={() => setShowAddTokenMenu(false)} className="text-slate-400 hover:text-white p-0.5">
+                          <X size={14} />
                         </button>
                       </div>
 
-                      {/* Saved Party Roster */}
-                      {savedTokens.length > 0 && (
-                        <div className="flex flex-col gap-1.5 bg-black/40 p-2.5 rounded-xl border border-white/5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-bold text-amber-400 uppercase flex items-center gap-1">
-                              <Users size={11} /> Saved Party Roster
-                            </span>
-                            <span className="text-[9px] text-slate-500 italic">R-Click to delete</span>
-                          </div>
+                      {/* Navigation Tabs: Codex Tray, Party Vault, Custom */}
+                      <div className="grid grid-cols-3 gap-1 bg-black/40 p-1 rounded-xl border border-white/5 text-[11px] font-bold">
+                        <button
+                          onClick={() => setTokenTrayTab('codex')}
+                          className={`py-1.5 rounded-lg transition-all ${
+                            tokenTrayTab === 'codex' ? 'bg-amber-500 text-black shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Codex Bestiary
+                        </button>
+                        <button
+                          onClick={() => setTokenTrayTab('party')}
+                          className={`py-1.5 rounded-lg transition-all ${
+                            tokenTrayTab === 'party' ? 'bg-amber-500 text-black shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Party Roster
+                        </button>
+                        <button
+                          onClick={() => setTokenTrayTab('custom')}
+                          className={`py-1.5 rounded-lg transition-all ${
+                            tokenTrayTab === 'custom' ? 'bg-amber-500 text-black shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Custom
+                        </button>
+                      </div>
 
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {savedTokens.map(template => (
-                              <div
-                                key={template.id}
-                                onContextMenu={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setRosterContextMenu({ x: e.clientX, y: e.clientY, template });
-                                }}
-                                onClick={() => handleDeploySavedTemplate(template)}
-                                className="p-1.5 rounded-lg bg-white/5 hover:bg-amber-500/25 border border-white/5 hover:border-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.9)] flex items-center justify-between text-left transition-colors cursor-pointer group"
-                                title="Left-click to spawn, Right-click to remove"
-                              >
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                  {template.imageUrl ? (
-                                    <img src={template.imageUrl} className="w-5 h-5 rounded-full object-cover shrink-0" />
-                                  ) : (
-                                    <span className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[8px] shrink-0" style={{ backgroundColor: template.color }}>
-                                      {template.name.substring(0, 2)}
-                                    </span>
-                                  )}
-                                  <span className="font-bold text-[11px] text-slate-200 truncate group-hover:text-amber-300">
-                                    {template.name}
-                                  </span>
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteTokenFromVault(template.id);
-                                  }}
-                                  className="text-slate-500 hover:text-red-400 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  title="Delete from roster"
-                                >
-                                  <X size={11} />
-                                </button>
-                              </div>
-                            ))}
+                      {/* TAB 1: CODEX BESTIARY & NPC TRAY */}
+                      {tokenTrayTab === 'codex' && (
+                        <div className="flex flex-col gap-2">
+                          <input
+                            type="text"
+                            placeholder="Search monsters, NPCs, characters..."
+                            value={codexSearchQuery}
+                            onChange={e => setCodexSearchQuery(e.target.value)}
+                            className="bg-black/50 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-amber-400/50"
+                          />
+
+                          <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
+                            {(() => {
+                              const candidateCards = (cards || []).filter(c => {
+                                const isRelevant = ['monster', 'npc', 'character'].includes(c.type) || 
+                                  (c.blocks || []).some((b: any) => b.blockType === 'statblock');
+                                if (!isRelevant) return false;
+                                if (!codexSearchQuery.trim()) return true;
+                                return c.name.toLowerCase().includes(codexSearchQuery.toLowerCase());
+                              });
+
+                              if (candidateCards.length === 0) {
+                                return (
+                                  <div className="text-center py-6 text-slate-500 text-[11px] italic">
+                                    No matching Codex cards found.
+                                  </div>
+                                );
+                              }
+
+                              return candidateCards.map(c => {
+                                const sbBlock = (c.blocks || []).find((b: any) => b.blockType === 'statblock' && b.statblock);
+                                const sb = sbBlock ? sbBlock.statblock : null;
+                                const hp = sb?.hitPoints || c.properties?.hp || 10;
+                                const ac = sb?.armorClass || c.properties?.ac || 10;
+
+                                return (
+                                  <div
+                                    key={c.id}
+                                    className="flex items-center justify-between p-2 rounded-xl bg-black/40 hover:bg-black/60 border border-white/5 hover:border-white/15 transition-all group"
+                                  >
+                                    <div className="flex items-center gap-2 overflow-hidden pr-2">
+                                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                                        c.type === 'character' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
+                                        c.type === 'monster' ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
+                                        'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                      }`}>
+                                        {c.name.charAt(0).toUpperCase()}
+                                      </div>
+
+                                      <div className="flex flex-col min-w-0">
+                                        <span className="font-bold text-slate-200 truncate text-[11px] group-hover:text-amber-300 transition-colors">
+                                          {c.name}
+                                        </span>
+                                        <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
+                                          <span>AC: {ac}</span>
+                                          <span>•</span>
+                                          <span>HP: {hp}</span>
+                                          <span>•</span>
+                                          <span className="capitalize">{c.type}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      onClick={() => handleSpawnFromCard(c)}
+                                      className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-[10px] border border-amber-500/40 transition-all shrink-0"
+                                    >
+                                      Deploy
+                                    </button>
+                                  </div>
+                                );
+                              });
+                            })()}
                           </div>
                         </div>
                       )}
 
-                      {/* Custom Token Creator */}
-                      <div className="flex flex-col gap-2">
-                        <span className="text-[10px] uppercase font-bold text-slate-400">
-                          {savedTokens.length > 0 ? 'Or Custom Creature / Monster:' : 'Create Creature:'}
-                        </span>
+                      {/* TAB 2: SAVED PARTY ROSTER */}
+                      {tokenTrayTab === 'party' && (
+                        <div className="flex flex-col gap-2">
+                          {savedTokens.length === 0 ? (
+                            <div className="text-center py-6 text-slate-500 text-[11px] italic">
+                              No saved party tokens in vault yet.
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
+                              {savedTokens.map(template => (
+                                <div
+                                  key={template.id}
+                                  className="flex items-center justify-between p-2 rounded-xl bg-black/40 hover:bg-black/60 border border-white/5 transition-all group"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <div 
+                                      className="w-6 h-6 rounded-full border border-white/20 flex items-center justify-center font-bold text-[10px] text-white shrink-0"
+                                      style={{ backgroundColor: template.color }}
+                                    >
+                                      {template.name.charAt(0)}
+                                    </div>
+                                    <span className="font-bold text-slate-200 text-[11px]">{template.name}</span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleSpawnSavedToken(template)}
+                                      className="px-2 py-0.5 rounded-lg bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-white font-bold text-[10px] border border-blue-500/30 transition-all"
+                                    >
+                                      Spawn
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* TAB 3: CUSTOM TOKEN BUILDER */}
+                       {tokenTrayTab === 'custom' && (
+                         <div className="flex flex-col gap-2">
 
                         <input
                           type="text"
@@ -2556,10 +3014,11 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
                             className="py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/35 border border-red-500/40 text-red-300 font-bold text-xs flex items-center justify-center gap-1 transition-colors"
                           >
                             <MousePointer size={12} />
-                            <span>Click Map</span>
-                          </button>
+                              <span>Click Map</span>
+                            </button>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3180,6 +3639,143 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
             />
           </div>
 
+          
+          
+              {/* Linked Codex Card Vitals & Navigation */}
+              {selectedToken.cardId && (
+                <div className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/25">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-amber-400 uppercase tracking-wider">Linked Statblock Card</span>
+                    <span className="text-xs font-bold text-slate-100 truncate max-w-[140px]">{selectedToken.name}</span>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (selectedToken.cardId) {
+                        setActiveCard(selectedToken.cardId);
+                        setActiveView('editor');
+                      }
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 text-black font-bold text-[10px] hover:bg-amber-400 transition-colors shadow-sm"
+                  >
+                    <span>Open Card</span>
+                  </button>
+                </div>
+              )}
+
+          {/* Autonomous Movement Settings for Monsters & NPCs */}
+          {!selectedToken.isPlayer && (
+            <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-white/5 border border-white/5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                  <Footprints size={12} className="text-amber-400" />
+                  Autonomous Motion
+                </span>
+                <span className="text-[10px] text-slate-500 uppercase font-mono">
+                  {selectedToken.movementMode || 'still'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1 bg-black/40 p-1 rounded-lg border border-white/5 text-[10px]">
+                {(['still', 'wander', 'patrol'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      setIsRecordingPath(false);
+                      setIsDrawingBoundary(false);
+                      updateToken(activeMap.id, { ...selectedToken, movementMode: mode });
+                    }}
+                    className={`py-1 rounded font-bold uppercase transition-all ${
+                      (selectedToken.movementMode || 'still') === mode
+                        ? 'bg-amber-500 text-black shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+
+              {/* Wander Controls (Multi-Point Polygon Boundary) */}
+              {selectedToken.movementMode === 'wander' && (
+                <div className="flex flex-col gap-2 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => {
+                        setIsRecordingPath(false);
+                        const nextState = !isDrawingBoundary;
+                        setIsDrawingBoundary(nextState);
+                        if (nextState) {
+                          setActiveDrawingPolygon(selectedToken.wanderPolygon || []);
+                        }
+                      }}
+                      className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold border transition-all flex items-center justify-center gap-1 ${
+                        isDrawingBoundary
+                          ? 'bg-amber-500 text-black border-amber-400 animate-pulse'
+                          : 'bg-white/5 text-slate-300 border-white/10 hover:border-amber-400'
+                      }`}
+                    >
+                      {isDrawingBoundary ? 'Click Map Corners (Done)' : 'Draw Boundary Area'}
+                    </button>
+                    {selectedToken.wanderPolygon && selectedToken.wanderPolygon.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setIsDrawingBoundary(false);
+                          setActiveDrawingPolygon([]);
+                          updateToken(activeMap.id, { ...selectedToken, wanderPolygon: undefined });
+                        }}
+                        className="px-2 py-1 rounded-lg text-[10px] bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
+                        title="Clear Boundary"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-500 italic text-center">
+                    {(selectedToken.wanderPolygon || []).length} boundary corner(s) saved
+                  </span>
+                </div>
+              )}
+
+              {/* Patrol Controls (Sequential Waypoints & Highlighted Path) */}
+              {selectedToken.movementMode === 'patrol' && (
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => {
+                        setIsDrawingBoundary(false);
+                        setIsRecordingPath(!isRecordingPath);
+                      }}
+                      className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-all flex items-center justify-center gap-1 ${
+                        isRecordingPath
+                          ? 'bg-blue-500 text-white border-blue-400 animate-pulse'
+                          : 'bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30'
+                      }`}
+                    >
+                      <Route size={11} />
+                      {isRecordingPath ? 'Clicking Waypoints (Done)' : 'Select Waypoints'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsRecordingPath(false);
+                        updateToken(activeMap.id, {
+                          ...selectedToken,
+                          patrolPath: [{ x: selectedToken.x, y: selectedToken.y }]
+                        });
+                      }}
+                      className="px-2 py-1 rounded-lg text-[10px] bg-white/5 border border-white/5 text-slate-400 hover:text-red-400"
+                      title="Clear Waypoints"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-slate-500 italic text-center">
+                    {(selectedToken.patrolPath || []).length} waypoint(s) on highlighted route
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
           {/* Size with Clear Active Highlighting */}
           <div className="flex items-center justify-between">
             <span className="text-slate-400">Size:</span>
@@ -3421,12 +4017,22 @@ export const MapView: React.FC<{ mapId?: string }> = ({ mapId }) => {
             {/* Independent X/Y Visual Grid Overlay */}
             {isTactical && showGridOverlay && (
               <div 
-                className="absolute inset-0 pointer-events-none"
+                className="absolute inset-0 pointer-events-none z-10"
                 style={{
-                  backgroundImage: `
-                    linear-gradient(to right, rgba(255, 255, 255, 0.12) 1px, transparent 1px),
-                    linear-gradient(to bottom, rgba(255, 255, 255, 0.12) 1px, transparent 1px)
-                  `,
+                  backgroundImage: gridStyle === 'light'
+                    ? `
+                        linear-gradient(to right, rgba(255, 255, 255, 0.45) 1.5px, transparent 1.5px),
+                        linear-gradient(to bottom, rgba(255, 255, 255, 0.45) 1.5px, transparent 1.5px)
+                      `
+                    : gridStyle === 'dark'
+                    ? `
+                        linear-gradient(to right, rgba(0, 0, 0, 0.75) 1.5px, transparent 1.5px),
+                        linear-gradient(to bottom, rgba(0, 0, 0, 0.75) 1.5px, transparent 1.5px)
+                      `
+                    : `
+                        linear-gradient(to right, rgba(0, 0, 0, 0.95) 2px, transparent 2px),
+                        linear-gradient(to bottom, rgba(0, 0, 0, 0.95) 2px, transparent 2px)
+                      `,
                   backgroundSize: `${100 / gridCols}% ${100 / gridRows}%`
                 }}
               />

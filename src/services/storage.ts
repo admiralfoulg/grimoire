@@ -1,3 +1,9 @@
+export interface StatblockTrait {
+  id: string;
+  name: string;
+  description: string;
+}
+
 ﻿import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase } from 'idb';
 
@@ -41,6 +47,7 @@ export interface StatblockData {
     wis: number;
     cha: number;
   };
+  traits?: StatblockTrait[];
   actions: StatblockAction[];
 }
 
@@ -125,6 +132,8 @@ export interface TokenAoE {
 }
 
 export interface MapToken {
+  cardId?: string;
+  ac?: number;
   id: string;
   mapId: string;
   x: number;
