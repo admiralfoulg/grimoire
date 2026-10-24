@@ -1,5 +1,16 @@
 ﻿import React, { useState, useRef, useEffect } from 'react';
 import { 
+  Sparkles,
+  Clipboard,
+  Split,
+  Check,
+  ChevronRight,
+  ChevronDown,
+  Shield,
+  Heart,
+  Zap,
+  Swords,
+  X,
   FileText, 
   Upload, 
   ZoomIn, 
@@ -16,9 +27,16 @@ import {
   HardDrive
 } from 'lucide-react';
 import { useGrimoireStore } from '../store/useGrimoireStore';
+import { parseRawStatblockText, DEFAULT_PRESETS } from './StatblockView';
+import type { CardBlock, StatblockData } from '../services/storage';
 
 export const PdfViewer: React.FC<{ pdfId?: string }> = ({ pdfId }) => {
-  const { pdfs, activePdfId, setActivePdf, addPdf, deletePdf, openTab } = useGrimoireStore();
+    const { pdfs, activePdfId, setActivePdf, addPdf, deletePdf, openTab, createCard, updateCard, openToSide } = useGrimoireStore();
+  const [isExtractorOpen, setIsExtractorOpen] = useState(false);
+  const [extractorText, setExtractorText] = useState('');
+  const [creatureName, setCreatureName] = useState('');
+  const [extractedData, setExtractedData] = useState<Partial<StatblockData> | null>(null);
+  const [extractSuccess, setExtractSuccess] = useState(false);
   const [zoom, setZoom] = useState<number>(100);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addMode, setAddMode] = useState<'upload' | 'url'>('upload');
@@ -31,6 +49,72 @@ export const PdfViewer: React.FC<{ pdfId?: string }> = ({ pdfId }) => {
 
   const effectivePdfId = pdfId || activePdfId;
   const activeDoc = pdfs.find(p => p.id === effectivePdfId);
+
+  
+  const handleRunParser = (text: string) => {
+    setExtractorText(text);
+    if (!text.trim()) {
+      setExtractedData(null);
+      return;
+    }
+    const lines = text.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length > 0 && !creatureName) {
+      setCreatureName(lines[0].replace(/^[#*_s]+/, '').replace(/[*_]+$/, ''));
+    }
+    const parsed = parseRawStatblockText(text);
+    setExtractedData(parsed);
+  };
+
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) handleRunParser(text);
+    } catch {
+      // Fallback if browser permission is blocked
+    }
+  };
+
+  const handleCreateExtractedCard = async (openBeside: boolean = true) => {
+    if (!extractedData) return;
+    const name = creatureName.trim() || 'Extracted Creature';
+    const baseStatblock = JSON.parse(JSON.stringify(DEFAULT_PRESETS.custom.data)) as StatblockData;
+    
+    const finalStatblock: StatblockData = {
+      ...baseStatblock,
+      ...extractedData,
+      abilities: {
+        ...baseStatblock.abilities,
+        ...(extractedData.abilities || {})
+      },
+      traits: extractedData.traits && extractedData.traits.length > 0 ? extractedData.traits : baseStatblock.traits,
+      actions: extractedData.actions && extractedData.actions.length > 0 ? extractedData.actions : baseStatblock.actions
+    };
+
+    const newCard = await createCard(name, 'monster');
+    const statblockBlock: CardBlock = {
+      id: crypto.randomUUID(),
+      title: name + ' Statblock',
+      content: '',
+      width: 'full',
+      blockType: 'statblock',
+      collapsed: false,
+      statblock: finalStatblock
+    };
+
+    await updateCard({
+      ...newCard,
+      blocks: [statblockBlock]
+    });
+
+    setExtractSuccess(true);
+    setTimeout(() => setExtractSuccess(false), 2000);
+
+    if (openBeside && openToSide) {
+      openToSide({ id: newCard.id, title: newCard.name, type: 'card' });
+    } else {
+      openTab({ id: newCard.id, title: newCard.name, type: 'card' });
+    }
+  };
 
   // Generate / manage safe object URLs for Blob PDFs
   useEffect(() => {
@@ -156,9 +240,23 @@ export const PdfViewer: React.FC<{ pdfId?: string }> = ({ pdfId }) => {
                 title="Open in Pop-out Browser Window"
               >
                 <ExternalLink size={14} />
-              </a>
+                </a>
 
-              <div className="h-4 w-px bg-white/10 mx-1" />
+                {/* Extract Statblock Toolbar Button */}
+                <button
+                  onClick={() => setIsExtractorOpen(!isExtractorOpen)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-medium transition-all shrink-0 ${
+                    isExtractorOpen
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                      : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+                  }`}
+                  title="Extract Statblock from Rulebook"
+                >
+                  <Sparkles size={13} className="text-amber-400 shrink-0" />
+                  <span className="hidden sm:inline">Extract</span>
+                </button>
+
+                <div className="h-4 w-px bg-white/10 mx-1" />
             </>
           )}
 
@@ -279,6 +377,226 @@ export const PdfViewer: React.FC<{ pdfId?: string }> = ({ pdfId }) => {
           </div>
         )}
       </div>
+
+
+        {/* TEXT-TO-STATBLOCK EXTRACTION DRAWER */}
+        {isExtractorOpen && (
+          <div className="w-80 sm:w-96 border-l border-white/10 bg-[#111622] flex flex-col h-full shadow-2xl z-30 shrink-0 font-sans animate-in slide-in-from-right duration-200 absolute right-0 top-0 bottom-0">
+            {/* Drawer Header */}
+            <div className="p-3 border-b border-white/10 flex items-center justify-between bg-black/40">
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} className="text-amber-400" />
+                <span className="text-xs font-bold text-slate-200">Statblock Extractor</span>
+              </div>
+              <button
+                onClick={() => setIsExtractorOpen(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+              {/* Name & Quick Paste Actions */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] uppercase font-bold text-slate-400">Creature Name</label>
+                  <button
+                    onClick={handlePasteClipboard}
+                    className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
+                    title="Paste text from clipboard"
+                  >
+                    <Clipboard size={11} /> Paste Clipboard
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. Invisible Stalker"
+                  value={creatureName}
+                  onChange={e => setCreatureName(e.target.value)}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-amber-400/50"
+                />
+              </div>
+
+              {/* Text Area */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] uppercase font-bold text-slate-400">Raw Statblock Text</label>
+                <textarea
+                  rows={8}
+                  placeholder="Paste monster statblock from rulebook (AC, HP, Speed, Stats, Actions)..."
+                  value={extractorText}
+                  onChange={e => handleRunParser(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-[11px] text-slate-300 font-mono outline-none resize-none focus:border-amber-400/50 leading-relaxed placeholder:text-slate-600"
+                />
+              </div>
+
+              {/* Real-time Parser Preview */}
+              {extractedData && (
+                <div className="flex flex-col gap-2 p-3 rounded-xl bg-black/40 border border-white/5">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Parsed Preview</span>
+                  <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                    <div className="p-1.5 rounded-lg bg-white/5">
+                      <div className="text-[9px] text-slate-500 uppercase">AC</div>
+                      <div className="font-bold text-amber-400 font-mono">{extractedData.armorClass ?? 10}</div>
+                    </div>
+                    <div className="p-1.5 rounded-lg bg-white/5">
+                      <div className="text-[9px] text-slate-500 uppercase">HP</div>
+                      <div className="font-bold text-red-400 font-mono">{extractedData.hitPoints ?? 10}</div>
+                    </div>
+                    <div className="p-1.5 rounded-lg bg-white/5">
+                      <div className="text-[9px] text-slate-500 uppercase">Speed</div>
+                      <div className="font-bold text-blue-400 font-mono truncate">{extractedData.speed ?? '30 ft'}</div>
+                    </div>
+                  </div>
+
+                  {extractedData.abilities && (
+                    <div className="grid grid-cols-6 gap-1 text-center text-[10px] font-mono pt-1">
+                      {['str', 'dex', 'con', 'int', 'wis', 'cha'].map(stat => (
+                        <div key={stat} className="bg-white/5 p-1 rounded">
+                          <div className="text-[8px] text-slate-500 uppercase">{stat}</div>
+                          <div className="text-slate-200">{extractedData.abilities?.[stat as keyof StatblockData['abilities']] ?? 10}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-white/5">
+                    <span>Traits: <b className="text-slate-200">{extractedData.traits?.length ?? 0}</b></span>
+                    <span>Actions: <b className="text-slate-200">{extractedData.actions?.length ?? 0}</b></span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="p-3 border-t border-white/10 flex flex-col gap-2 bg-black/40">
+              <button
+                disabled={!extractedData}
+                onClick={handleCreateExtractedCard}
+                className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs flex items-center justify-center gap-2 transition-all shadow-md"
+              >
+                {extractSuccess ? <Check size={14} className="text-emerald-400" /> : <Split size={14} />}
+                <span>{extractSuccess ? 'Creature Card Created!' : 'Create Card (Split View)'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+      
+        {/* Floating Action Button for Narrow Split Screens */}
+        {activeDoc && !isExtractorOpen && (
+          <button
+            onClick={() => setIsExtractorOpen(true)}
+            className="absolute bottom-5 right-5 z-20 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs shadow-2xl transition-all shadow-amber-500/30 hover:scale-105"
+            title="Open Statblock Extractor"
+          >
+            <Sparkles size={14} className="text-black" />
+            <span>Extract Statblock</span>
+          </button>
+        )}
+
+        {/* Slide-out Extraction Drawer */}
+        {isExtractorOpen && (
+          <div className="w-80 sm:w-96 border-l border-white/10 bg-[#111622] flex flex-col h-full shadow-2xl z-30 shrink-0 font-sans animate-in slide-in-from-right duration-200 absolute right-0 top-0 bottom-0">
+            {/* Drawer Header */}
+            <div className="p-3 border-b border-white/10 flex items-center justify-between bg-black/40">
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} className="text-amber-400" />
+                <span className="text-xs font-bold text-slate-200">Statblock Extractor</span>
+              </div>
+              <button
+                onClick={() => setIsExtractorOpen(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+              {/* Name & Quick Paste Actions */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] uppercase font-bold text-slate-400">Creature Name</label>
+                  <button
+                    onClick={handlePasteClipboard}
+                    className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
+                    title="Paste text from clipboard"
+                  >
+                    <Clipboard size={11} /> Paste Clipboard
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. Githyanki Warrior"
+                  value={creatureName}
+                  onChange={e => setCreatureName(e.target.value)}
+                  className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-amber-400/50"
+                />
+              </div>
+
+              {/* Text Area */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] uppercase font-bold text-slate-400">Raw Statblock Text</label>
+                <textarea
+                  rows={8}
+                  placeholder="Paste creature text here (Armor Class, Hit Points, Speed, STR/DEX/CON, Actions)..."
+                  value={extractorText}
+                  onChange={e => handleRunParser(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-[11px] text-slate-300 font-mono outline-none resize-none focus:border-amber-400/50 leading-relaxed placeholder:text-slate-600"
+                />
+              </div>
+
+              {/* Real-time Parser Preview */}
+              {extractedData && (
+                <div className="flex flex-col gap-2 p-3 rounded-xl bg-black/40 border border-white/5">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Parsed Preview</span>
+                  <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                    <div className="p-1.5 rounded-lg bg-white/5">
+                      <div className="text-[9px] text-slate-500 uppercase">AC</div>
+                      <div className="font-bold text-amber-400 font-mono">{extractedData.armorClass ?? 10}</div>
+                    </div>
+                    <div className="p-1.5 rounded-lg bg-white/5">
+                      <div className="text-[9px] text-slate-500 uppercase">HP</div>
+                      <div className="font-bold text-red-400 font-mono">{extractedData.hitPoints ?? 10}</div>
+                    </div>
+                    <div className="p-1.5 rounded-lg bg-white/5">
+                      <div className="text-[9px] text-slate-500 uppercase">Speed</div>
+                      <div className="font-bold text-blue-400 font-mono truncate">{extractedData.speed ?? '30 ft'}</div>
+                    </div>
+                  </div>
+
+                  {extractedData.abilities && (
+                    <div className="grid grid-cols-6 gap-1 text-center text-[10px] font-mono pt-1">
+                      {['str', 'dex', 'con', 'int', 'wis', 'cha'].map(stat => (
+                        <div key={stat} className="bg-white/5 p-1 rounded">
+                          <div className="text-[8px] text-slate-500 uppercase">{stat}</div>
+                          <div className="text-slate-200">{extractedData.abilities?.[stat as keyof StatblockData['abilities']] ?? 10}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-white/5">
+                    <span>Traits: <b className="text-slate-200">{extractedData.traits?.length ?? 0}</b></span>
+                    <span>Actions: <b className="text-slate-200">{extractedData.actions?.length ?? 0}</b></span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="p-3 border-t border-white/10 flex flex-col gap-2 bg-black/40">
+              <button
+                disabled={!extractedData}
+                onClick={handleCreateExtractedCard}
+                className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs flex items-center justify-center gap-2 transition-all shadow-md"
+              >
+                {extractSuccess ? <Check size={14} className="text-emerald-400" /> : <Split size={14} />}
+                <span>{extractSuccess ? 'Creature Card Created!' : 'Create Card (Split View)'}</span>
+              </button>
+            </div>
+          </div>
+        )}
 
       {/* Add Rulebook Modal */}
       {showAddModal && (
